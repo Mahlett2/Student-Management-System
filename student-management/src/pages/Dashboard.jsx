@@ -1,49 +1,44 @@
+import { Link } from "react-router-dom";
 import "../styles/dashboard.css";
 
 export default function Dashboard() {
   return (
-    <div className="dashboard-page">
-      <h1 className="title">University Dashboard</h1>
+    <div className="dashboard-container">
+      {/* SIDEBAR */}
+      <div className="sidebar">
+        <h2 className="logo">University System</h2>
 
-      {/* CARDS */}
-      <div className="cards">
-        <div className="card blue">
-          <h3>Students</h3>
-          <p>1,240</p>
-        </div>
+        <Link to="/" className="nav-link">
+          Dashboard
+        </Link>
+        <Link to="/student-portal" className="nav-link">
+          Student Portal
+        </Link>
+        <Link to="/teacher-portal" className="nav-link">
+          Teacher Portal
+        </Link>
 
-        <div className="card green">
-          <h3>Courses</h3>
-          <p>58</p>
-        </div>
+        <div className="divider"></div>
 
-        <div className="card orange">
-          <h3>Lecturers</h3>
-          <p>87</p>
-        </div>
+        <h4 className="section-title">Student Features</h4>
 
-        <div className="card red">
-          <h3>Departments</h3>
-          <p>12</p>
-        </div>
+        <Link to="/student/profile" className="nav-link">
+          Profile
+        </Link>
+        <Link to="/student/grades" className="nav-link">
+          Grades
+        </Link>
+        <Link to="/student/register" className="nav-link">
+          Register
+        </Link>
+        <Link to="/student/adddrop" className="nav-link">
+          Add / Drop
+        </Link>
       </div>
 
-      {/* LOWER SECTION */}
-      <div className="bottom-section">
-        <div className="activity">
-          <h2>Recent Activity</h2>
-          <ul>
-            <li>✔ New student John Doe added</li>
-            <li>✔ Course CS101 updated</li>
-            <li>✔ Lecturer assigned to IT department</li>
-            <li>✔ Grades published for Semester 1</li>
-          </ul>
-        </div>
-
-        <div className="notice">
-          <h2>University Notice</h2>
-          <p>Midterm exams will start next week. Please check your schedule.</p>
-        </div>
+      {/* MAIN CONTENT */}
+      <div className="main-content">
+        <h1>Dashboard</h1>
       </div>
     </div>
   );
