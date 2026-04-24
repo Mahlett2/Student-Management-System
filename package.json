@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
   "name": "student-management",
   "private": true,
   "version": "0.0.0",
@@ -27,5 +28,11 @@
     "postcss": "^8.5.10",
     "tailwindcss": "^4.2.4",
     "vite": "^8.0.10"
+=======
+  "devDependencies": {
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.10",
+    "tailwindcss": "^4.2.4"
+>>>>>>> 030d067ed90086b691e36fcf8321cd3544591d06
   }
 }
