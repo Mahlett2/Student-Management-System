@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   BarChart,
   Bar,
@@ -28,6 +28,7 @@ import AddDropMonitor from "../components/AddDropMonitor";
 import CafeteriaMonitor from "../components/CafeteriaMonitor";
 import { useAdmin } from "../data/adminStore";
 import { useSettings } from "../data/settingsStore";
+import { apiGet } from "../api/client";
 import "../styles/dashboard.css";
 
 export default function Dashboard() {
@@ -35,12 +36,37 @@ export default function Dashboard() {
   const { currentAdmin, logout, can } = useAdmin();
   const { settings } = useSettings();
 
-  // MAIN STATS
+  // Real counts from API
+  const [counts, setCounts] = useState({
+    students: "—",
+    teachers: "—",
+    classes:  "—",
+    subjects: "—",
+  });
+
+  useEffect(() => {
+    // Fetch all counts in parallel
+    Promise.all([
+      apiGet("/students/?page_size=1"),
+      apiGet("/teachers/?page_size=1"),
+      apiGet("/classes/?page_size=1"),
+      apiGet("/subjects/?page_size=1"),
+    ]).then(([students, teachers, classes, subjects]) => {
+      setCounts({
+        students: students?.count ?? (Array.isArray(students) ? students.length : "—"),
+        teachers: teachers?.count ?? (Array.isArray(teachers) ? teachers.length : "—"),
+        classes:  classes?.count  ?? (Array.isArray(classes)  ? classes.length  : "—"),
+        subjects: subjects?.count ?? (Array.isArray(subjects) ? subjects.length : "—"),
+      });
+    }).catch(() => {});
+  }, []);
+
+  // MAIN STATS — now using real API counts
   const stats = [
-    { label: "Total Students", value: 1240, icon: "🎓" },
-    { label: "Total Teachers", value: 92,   icon: "👨‍🏫" },
-    { label: "Classes",        value: 48,   icon: "🏫" },
-    { label: "Subjects",       value: 24,   icon: "📚" },
+    { label: "Total Students", value: counts.students, icon: "🎓" },
+    { label: "Total Teachers", value: counts.teachers, icon: "👨‍🏫" },
+    { label: "Classes",        value: counts.classes,  icon: "🏫" },
+    { label: "Subjects",       value: counts.subjects, icon: "📚" },
   ];
 
   // ENROLLMENT TRENDS — per semester, split by faculty

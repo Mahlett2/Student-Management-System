@@ -20,22 +20,24 @@ const SCORE_COMPONENTS = [
 function toLetterGrade(g) {
   const n = Number(g);
   if (isNaN(n)) return g;
-  if (n >= 90) return "A";
-  if (n >= 85) return "A-";
-  if (n >= 80) return "B+";
-  if (n >= 75) return "B";
-  if (n >= 70) return "B-";
-  if (n >= 65) return "C+";
-  if (n >= 60) return "C";
-  if (n >= 50) return "D";
+  if (n > 90)  return "A+";
+  if (n >= 85) return "A";
+  if (n >= 80) return "A-";
+  if (n >= 75) return "B+";
+  if (n >= 70) return "B";
+  if (n >= 65) return "B-";
+  if (n >= 60) return "C+";
+  if (n >= 55) return "C";
+  if (n >= 50) return "C-";
+  if (n >= 45) return "D";
   return "F";
 }
 
 function gradeColor(g) {
   const letter = toLetterGrade(g);
-  if (["A", "A-"].includes(letter)) return { bg: "#dcfce7", text: "#15803d" };
+  if (["A+", "A", "A-"].includes(letter)) return { bg: "#dcfce7", text: "#15803d" };
   if (["B+", "B", "B-"].includes(letter)) return { bg: "#dbeafe", text: "#1d4ed8" };
-  if (["C+", "C"].includes(letter)) return { bg: "#fef9c3", text: "#a16207" };
+  if (["C+", "C", "C-"].includes(letter)) return { bg: "#fef9c3", text: "#a16207" };
   if (letter === "D") return { bg: "#ffedd5", text: "#c2410c" };
   return { bg: "#fee2e2", text: "#dc2626" };
 }

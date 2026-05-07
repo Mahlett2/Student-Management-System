@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import TeacherAttendance from "./TeacherAttendance";
 import TeacherProfile from "./TeacherProfile";
@@ -7,6 +7,8 @@ import TeacherGrades from "./TeacherGrades";
 import TeacherAttendanceHistory from "./TeacherAttendanceHistory";
 import TeacherTimetable from "./TeacherTimetable";
 import AnnouncementPage from "../Announcement";
+import { apiGet } from "../../api/client";
+import { clearTokens } from "../../api/client";
 
 const NAV = [
   { id: "home",          icon: "🏠", label: "Dashboard" },
@@ -21,81 +23,123 @@ const NAV = [
 
 export default function TeacherPortal() {
   const [page, setPage] = useState("home");
+  const [teacher, setTeacher] = useState(() => {
+    const stored = localStorage.getItem("current_user");
+    return stored ? JSON.parse(stored) : {};
+  });
+  const [deptStudentCount, setDeptStudentCount] = useState(0);
+  const [recentSessions, setRecentSessions]     = useState([]);
+  const [todaySessionCount, setTodaySessionCount] = useState(0);
+  const [totalSessionCount, setTotalSessionCount] = useState(0);
   const navigate = useNavigate();
 
-  const stored = localStorage.getItem("teacher");
-  const teacher = stored ? JSON.parse(stored) : {};
+  // Load teacher profile from API on mount
+  useEffect(() => {
+    apiGet("/teachers/me/")
+      .then((data) => {
+        if (data) {
+          const profile = {
+            name:               data.full_name           ?? data.name          ?? "",
+            full_name:          data.full_name           ?? "",
+            department:         data.department_name     ?? data.department    ?? "",
+            email:              data.email               ?? "",
+            teacherId:          data.teacher_id          ?? "",
+            subject:            data.assigned_subject    ?? data.subject       ?? "",
+            assignedDepartment: data.assigned_department ?? "",
+            assignedSection:    data.assigned_section    ?? "",
+            assignedSubject:    data.assigned_subject    ?? "",
+            assignedSemester:   data.assigned_semester   ?? "",
+            assignedYear:       data.assigned_year       ?? "",
+            id:                 data.id,
+          };
+          setTeacher(profile);
+          localStorage.setItem("current_user", JSON.stringify({ ...JSON.parse(localStorage.getItem("current_user") || "{}"), ...profile }));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Load attendance sessions from API
+  useEffect(() => {
+    const today = new Date().toISOString().split("T")[0];
+    apiGet("/attendance/sessions/")
+      .then((data) => {
+        const list = Array.isArray(data) ? data : (data?.results || []);
+        const normalized = list.map((s) => ({
+          ...s,
+          className: s.class_name || s.className || "",
+          records: (s.records || []).map((r) => ({
+            studentName: r.student_name || r.studentName || "",
+            status: r.status || "Present",
+          })),
+        }));
+        setTotalSessionCount(normalized.length);
+        setTodaySessionCount(normalized.filter((s) => s.date === today).length);
+        setRecentSessions(
+          [...normalized].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5)
+        );
+      })
+      .catch(() => {});
+  }, []);
+
+  // Load student count for assigned class (dept + section + year)
+  useEffect(() => {
+    apiGet("/students/?page_size=1000")
+      .then((data) => {
+        const list = Array.isArray(data) ? data : (data?.results || []);
+        const assignedDept    = teacher.assignedDepartment || teacher.department || "";
+        const assignedSection = teacher.assignedSection    || "";
+        const assignedYear    = teacher.assignedYear       || "";
+        const filtered = list.filter((s) => {
+          const dept = typeof s.department === "object" ? s.department?.name : s.department || "";
+          const deptMatch = !assignedDept    || dept === assignedDept || assignedDept === "Fresh";
+          const secMatch  = !assignedSection || s.section === assignedSection;
+          const yearMatch = !assignedYear    || s.year    === assignedYear;
+          return deptMatch && secMatch && yearMatch;
+        });
+        setDeptStudentCount(filtered.length);
+      })
+      .catch(() => {});
+  }, [teacher.assignedDepartment, teacher.assignedSection, teacher.assignedYear, teacher.department]);
 
   const logout = () => {
+    clearTokens();
     sessionStorage.removeItem("auth");
     localStorage.removeItem("role");
-    localStorage.removeItem("teacher");
+    localStorage.removeItem("current_user");
     navigate("/login");
   };
 
-  // ── Stats calculations ──
   const today = new Date().toISOString().split("T")[0];
-
-  // All attendance sessions
-  const allSessions = JSON.parse(localStorage.getItem("attendance_sessions") || "[]");
-
-  // Sessions marked by this teacher (by department match)
-  const mySessions = allSessions.filter(
-    (s) => s.department === teacher.department
-  );
-
-  // Sessions marked today
-  const todaySessions = mySessions.filter((s) => s.date === today);
-
-  // Total unique students across all my sessions
-  const studentSet = new Set();
-  mySessions.forEach((s) => s.records.forEach((r) => studentSet.add(r.studentName)));
-  const totalStudents = studentSet.size;
-
-  // Students in my department from admin store
-  const adminStudents = JSON.parse(localStorage.getItem("students_admin") || "[]");
-  const myDeptStudents = adminStudents.filter((s) => s.department === teacher.department).length;
-
-  // Pending grades — students in my dept who have no grade uploaded yet
-  const results = JSON.parse(localStorage.getItem("results_data") || "[]");
-  const gradedStudents = new Set(results.filter((r) => r.department === teacher.department).map((r) => r.studentName));
-  const pendingGrades = myDeptStudents > 0
-    ? Math.max(0, myDeptStudents - gradedStudents.size)
-    : 0;
-
-  // Recent sessions (last 5)
-  const recentSessions = [...mySessions]
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
-    .slice(0, 5);
 
   const stats = [
     {
-      label: "Students in My Dept",
-      value: myDeptStudents || totalStudents,
+      label: "Students in My Class",
+      value: deptStudentCount,
       icon: "🎓",
       color: "#38BDF8",
-      desc: teacher.department,
+      desc: `${teacher.assignedDepartment || teacher.department || "—"} · ${teacher.assignedSection || "—"}`,
     },
     {
       label: "Sessions Today",
-      value: todaySessions.length,
+      value: todaySessionCount,
       icon: "📅",
-      color: todaySessions.length > 0 ? "#10B981" : "#64748B",
+      color: todaySessionCount > 0 ? "#10B981" : "#64748B",
       desc: today,
     },
     {
       label: "Total Sessions",
-      value: mySessions.length,
+      value: totalSessionCount,
       icon: "📋",
       color: "#A78BFA",
       desc: "All time",
     },
     {
-      label: "Pending Grades",
-      value: pendingGrades,
+      label: "Attendance Tracked",
+      value: recentSessions.length > 0 ? "✓" : "—",
       icon: "⏳",
-      color: pendingGrades > 0 ? "#F59E0B" : "#10B981",
-      desc: pendingGrades > 0 ? "Need uploading" : "All up to date",
+      color: "#10B981",
+      desc: recentSessions.length > 0 ? "Sessions recorded" : "No sessions yet",
     },
   ];
 
@@ -116,14 +160,6 @@ export default function TeacherPortal() {
 
       <div style={{ height: "1px", background: "rgba(56,189,248,0.08)", margin: "10px 16px" }} />
 
-      <div style={{ padding: "10px 16px", marginBottom: "4px" }}>
-        <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "linear-gradient(135deg,#0EA5E9,#38BDF8)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700", color: "#0C4A6E", fontSize: "1rem", marginBottom: "8px" }}>
-          {teacher.name?.charAt(0).toUpperCase() || "T"}
-        </div>
-        <p style={{ color: "#E0F2FE", fontWeight: "600", fontSize: "0.82rem", margin: 0 }}>{teacher.name || "Teacher"}</p>
-        <p style={{ color: "#64748B", fontSize: "0.75rem", margin: "2px 0 0" }}>{teacher.department || ""}</p>
-      </div>
-
       <button onClick={logout} style={{ margin: "auto 8px 16px", padding: "8px 14px", border: "none", borderRadius: "8px", cursor: "pointer", fontSize: "0.82rem", fontWeight: "600", background: "rgba(239,68,68,0.12)", color: "#FCA5A5", display: "flex", alignItems: "center", gap: "8px" }}>
         🚪 Logout
       </button>
@@ -143,7 +179,7 @@ export default function TeacherPortal() {
             <div style={{ background: "linear-gradient(135deg,#0F172A,#1E293B)", borderRadius: "16px", padding: "24px 28px", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem", border: "1px solid rgba(56,189,248,0.15)" }}>
               <div>
                 <h1 style={{ color: "#E0F2FE", margin: "0 0 6px", fontSize: "1.4rem", fontWeight: "800" }}>
-                  Welcome, {teacher.name?.split(" ")[0] || "Teacher"} 👋
+                  Welcome, {(teacher.full_name || teacher.name)?.split(" ")[0] || "Teacher"} 👋
                 </h1>
                 <p style={{ color: "#64748B", margin: 0, fontSize: "0.875rem" }}>
                   {teacher.department} · {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
@@ -154,6 +190,27 @@ export default function TeacherPortal() {
                 <p style={{ color: "#64748B", margin: "2px 0 0", fontSize: "0.78rem" }}>Wollo University</p>
               </div>
             </div>
+
+            {/* Teaching Assignment Card */}
+            {(teacher.assignedDepartment || teacher.assignedSubject) && (
+              <div style={{ background: "linear-gradient(135deg,#0F172A,#1E293B)", borderRadius: "14px", padding: "18px 22px", marginBottom: "20px", border: "1px solid rgba(56,189,248,0.2)" }}>
+                <p style={{ color: "#38BDF8", fontWeight: "700", fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 12px" }}>📚 Your Teaching Assignment</p>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "12px" }}>
+                  {[
+                    { label: "Department", value: teacher.assignedDepartment || "—", icon: "🏛️", color: teacher.assignedDepartment === "Fresh" ? "#FCD34D" : "#A78BFA" },
+                    { label: "Year",       value: teacher.assignedYear       || "—", icon: "📅", color: "#34D399" },
+                    { label: "Section",    value: teacher.assignedSection    || "—", icon: "🏫", color: "#60A5FA" },
+                    { label: "Subject",    value: teacher.assignedSubject    || "—", icon: "📖", color: "#F87171" },
+                    { label: "Semester",   value: teacher.assignedSemester   || "—", icon: "🗓️", color: "#FBBF24" },
+                  ].map((c) => (
+                    <div key={c.label} style={{ background: "rgba(255,255,255,0.05)", borderRadius: "10px", padding: "12px 14px", border: "1px solid rgba(56,189,248,0.1)" }}>
+                      <p style={{ color: "#64748B", fontSize: "0.7rem", fontWeight: "700", textTransform: "uppercase", margin: "0 0 4px" }}>{c.icon} {c.label}</p>
+                      <p style={{ color: c.color, fontWeight: "700", fontSize: "0.9rem", margin: 0 }}>{c.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Summary stat cards */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "14px", marginBottom: "20px" }}>
@@ -181,7 +238,7 @@ export default function TeacherPortal() {
                 <div>
                   <p style={{ margin: 0, fontWeight: "700", color: "#38BDF8" }}>Today's Sessions</p>
                   <p style={{ margin: "3px 0 0", fontSize: "0.78rem", color: "#64748B" }}>
-                    {todaySessions.length === 0 ? "No sessions marked today" : `${todaySessions.length} session${todaySessions.length > 1 ? "s" : ""} marked`}
+                    {todaySessionCount === 0 ? "No sessions marked today" : `${todaySessionCount} session${todaySessionCount > 1 ? "s" : ""} marked`}
                   </p>
                 </div>
               </div>

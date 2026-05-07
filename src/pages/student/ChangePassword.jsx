@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { validatePassword, passwordStrength } from "../../utils/validators";
-import { studentsDB } from "../../data/studentsDB";
+import { apiPost } from "../../api/client";
 
 export default function ChangePassword() {
-  const stored = localStorage.getItem("student");
-  const student = stored ? JSON.parse(stored) : {};
+  const stored = localStorage.getItem("current_user");
+  const user = stored ? JSON.parse(stored) : {};
 
   const [current, setCurrent] = useState("");
   const [newPass, setNewPass] = useState("");
@@ -14,17 +14,13 @@ export default function ChangePassword() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [errors, setErrors] = useState({});
   const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const strength = passwordStrength(newPass);
 
   const validate = () => {
     const e = {};
     if (!current) e.current = "Current password is required";
-    else {
-      // Check against stored password
-      const storedPass = student.password;
-      if (current !== storedPass) e.current = "Current password is incorrect";
-    }
     const passErr = validatePassword(newPass);
     if (passErr) e.newPass = passErr;
     else if (newPass === current) e.newPass = "New password must be different from current password";
@@ -33,30 +29,30 @@ export default function ChangePassword() {
     return e;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setSuccess(false);
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
 
-    // Update in localStorage
-    const updated = { ...student, password: newPass };
-    localStorage.setItem("student", JSON.stringify(updated));
-
-    // Update in studentsDB array in memory (for current session)
-    const idx = studentsDB.findIndex((s) => s.id === student.id);
-    if (idx !== -1) studentsDB[idx].password = newPass;
-
-    // Also update in students_admin localStorage if exists
-    const adminStudents = JSON.parse(localStorage.getItem("students_admin") || "[]");
-    const adminIdx = adminStudents.findIndex((s) => s.studentId === student.studentId);
-    if (adminIdx !== -1) {
-      adminStudents[adminIdx].password = newPass;
-      localStorage.setItem("students_admin", JSON.stringify(adminStudents));
+    setLoading(true);
+    try {
+      await apiPost("/auth/change-password/", {
+        old_password: current,
+        new_password: newPass,
+      });
+      setCurrent(""); setNewPass(""); setConfirm(""); setErrors({});
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+    } catch (err) {
+      const data = err.data || {};
+      const e = {};
+      if (data.old_password) e.current = Array.isArray(data.old_password) ? data.old_password[0] : data.old_password;
+      else if (data.detail) e.current = data.detail;
+      else e.current = "Current password is incorrect";
+      setErrors(e);
+    } finally {
+      setLoading(false);
     }
-
-    setCurrent(""); setNewPass(""); setConfirm(""); setErrors({});
-    setSuccess(true);
-    setTimeout(() => setSuccess(false), 5000);
   };
 
   const Field = ({ label, value, onChange, show, onToggle, error, placeholder }) => (
@@ -84,7 +80,7 @@ export default function ChangePassword() {
       <div style={{ background: "linear-gradient(135deg,#0F172A,#1E293B)", borderRadius: "16px", padding: "20px 24px", marginBottom: "20px" }}>
         <h2 style={{ color: "#E0F2FE", margin: 0, fontSize: "1.2rem", fontWeight: "800" }}>🔒 Change Password</h2>
         <p style={{ color: "#64748B", margin: "4px 0 0", fontSize: "0.82rem" }}>
-          {student.name} · {student.studentId}
+          {user.full_name || user.username}
         </p>
       </div>
 
@@ -147,8 +143,8 @@ export default function ChangePassword() {
           </p>
         )}
 
-        <button onClick={handleSubmit} style={{ width: "100%", padding: "12px", background: "linear-gradient(135deg,#0F172A,#1E293B)", color: "#38BDF8", border: "none", borderRadius: "10px", cursor: "pointer", fontWeight: "700", fontSize: "0.9rem", boxShadow: "0 3px 12px rgba(0,0,0,0.2)" }}>
-          🔒 Change Password
+        <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "12px", background: "linear-gradient(135deg,#0F172A,#1E293B)", color: "#38BDF8", border: "none", borderRadius: "10px", cursor: loading ? "not-allowed" : "pointer", fontWeight: "700", fontSize: "0.9rem", boxShadow: "0 3px 12px rgba(0,0,0,0.2)", opacity: loading ? 0.7 : 1 }}>
+          {loading ? "⏳ Changing..." : "🔒 Change Password"}
         </button>
       </div>
 

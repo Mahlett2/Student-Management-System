@@ -1,21 +1,41 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { apiGet } from "../../api/client";
 
 const LOW = 75;
 
 export default function TeacherAttendanceHistory() {
-  const stored = localStorage.getItem("teacher");
+  const stored = localStorage.getItem("current_user");
   const teacher = stored ? JSON.parse(stored) : {};
 
   const [view, setView] = useState("summary"); // summary | sessions | detail
   const [selectedSession, setSelectedSession] = useState(null);
   const [search, setSearch] = useState("");
   const [filterClass, setFilterClass] = useState("");
+  const [mySessions, setMySessions] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // All sessions for this teacher's department
-  const allSessions = JSON.parse(localStorage.getItem("attendance_sessions") || "[]");
-  const mySessions = allSessions
-    .filter((s) => s.department === teacher.department)
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
+  // Load sessions from API on mount
+  useEffect(() => {
+    apiGet("/attendance/sessions/")
+      .then((data) => {
+        const list = Array.isArray(data) ? data : (data?.results || []);
+        // Normalize API response fields to match component expectations
+        const normalized = list.map((s) => ({
+          ...s,
+          className: s.class_name || s.className || "",
+          records: (s.records || []).map((r) => ({
+            studentName: r.student_name || r.studentName || "",
+            studentId:   r.student_code || r.studentId || "",
+            status:      r.status || "Present",
+          })),
+        }));
+        // Sort newest first
+        normalized.sort((a, b) => new Date(b.date) - new Date(a.date));
+        setMySessions(normalized);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   // Unique classes
   const classes = [...new Set(mySessions.map((s) => s.className))];
@@ -61,13 +81,21 @@ export default function TeacherAttendanceHistory() {
     return { bg: "#FEE2E2", text: "#DC2626" };
   };
 
+  if (loading) {
+    return (
+      <div style={{ textAlign: "center", padding: "3rem", color: "#0369A1" }}>
+        ⏳ Loading attendance history...
+      </div>
+    );
+  }
+
   // Session detail view
   if (view === "detail" && selectedSession) {
     const sess = mySessions.find((s) => s.id === selectedSession);
     if (!sess) return null;
     const present = sess.records.filter((r) => r.status === "Present").length;
-    const absent = sess.records.filter((r) => r.status === "Absent").length;
-    const late = sess.records.filter((r) => r.status === "Late").length;
+    const absent  = sess.records.filter((r) => r.status === "Absent").length;
+    const late    = sess.records.filter((r) => r.status === "Late").length;
     const rate = sess.records.length > 0 ? Math.round(((present + late * 0.5) / sess.records.length) * 100) : 0;
     const col = rateColor(rate);
 
@@ -126,7 +154,7 @@ export default function TeacherAttendanceHistory() {
         <div>
           <h2 style={{ color: "#E0F2FE", margin: 0, fontSize: "1.2rem", fontWeight: "800" }}>📋 Attendance History</h2>
           <p style={{ color: "#64748B", margin: "4px 0 0", fontSize: "0.82rem" }}>
-            {teacher.department} · {mySessions.length} session{mySessions.length !== 1 ? "s" : ""} total
+            {mySessions.length} session{mySessions.length !== 1 ? "s" : ""} total
           </p>
         </div>
         <div style={{ display: "flex", gap: "6px", background: "rgba(56,189,248,0.1)", padding: "4px", borderRadius: "10px" }}>
@@ -210,8 +238,8 @@ export default function TeacherAttendanceHistory() {
                 <tbody>
                   {filtered.map((s, i) => {
                     const present = s.records.filter((r) => r.status === "Present").length;
-                    const absent = s.records.filter((r) => r.status === "Absent").length;
-                    const late = s.records.filter((r) => r.status === "Late").length;
+                    const absent  = s.records.filter((r) => r.status === "Absent").length;
+                    const late    = s.records.filter((r) => r.status === "Late").length;
                     const rate = s.records.length > 0 ? Math.round(((present + late * 0.5) / s.records.length) * 100) : 0;
                     const col = rateColor(rate);
                     return (

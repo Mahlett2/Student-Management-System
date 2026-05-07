@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useAddDrop } from "../data/addDropStore";
+import { approveAddDrop, rejectAddDrop } from "../api/operations";
 
 const STATUSES = ["Pending", "Approved", "Rejected"];
 
@@ -11,17 +12,29 @@ export default function AddDropMonitor({ goBack }) {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return requests.filter((r) =>
-      (!q || r.studentName.toLowerCase().includes(q) || r.course.toLowerCase().includes(q) || r.studentId?.toLowerCase().includes(q)) &&
-      (!filterStatus || r.status === filterStatus) &&
-      (!filterType || r.type === filterType)
-    );
+    return requests.filter((r) => {
+      const course = r.subject || r.course || "";
+      const type   = r.request_type || r.type || "";
+      const name   = r.student_name || r.studentName || "";
+      const sid    = r.student_code || r.studentId || "";
+      return (
+        (!q || name.toLowerCase().includes(q) || course.toLowerCase().includes(q) || sid.toLowerCase().includes(q)) &&
+        (!filterStatus || r.status === filterStatus) &&
+        (!filterType || type === filterType)
+      );
+    });
   }, [requests, search, filterStatus, filterType]);
 
   const pending = requests.filter((r) => r.status === "Pending").length;
 
-  const updateStatus = (id, status) => {
-    setRequests((p) => p.map((r) => r.id === id ? { ...r, status, reviewedAt: new Date().toISOString() } : r));
+  const updateStatus = async (id, status) => {
+    try {
+      if (status === "Approved") await approveAddDrop(id);
+      else if (status === "Rejected") await rejectAddDrop(id);
+      setRequests((p) => p.map((r) => r.id === id ? { ...r, status, reviewedAt: new Date().toISOString() } : r));
+    } catch (err) {
+      alert("Update failed: " + (err.message || "Unknown error"));
+    }
   };
 
   const deleteRequest = (id) => {
@@ -100,16 +113,21 @@ export default function AddDropMonitor({ goBack }) {
             <tbody>
               {filtered.map((r, i) => {
                 const sc = statusColor[r.status] || statusColor.Pending;
+                const course = r.subject || r.course || "—";
+                const type   = r.request_type || r.type || "—";
+                const name   = r.student_name || r.studentName || "—";
+                const sid    = r.student_code || r.studentId || "—";
+                const submittedAt = r.submitted_at || r.submittedAt;
                 return (
                   <tr key={r.id} style={{ background: i % 2 === 0 ? "#7DD3FC" : "#BAE6FD", borderBottom: "1px solid rgba(14,165,233,0.15)" }}>
-                    <td style={{ padding: "11px 14px", fontWeight: "600", color: "#0C4A6E" }}>{r.studentName}</td>
-                    <td style={{ padding: "11px 14px", color: "#0369A1", fontFamily: "monospace", fontSize: "0.82rem" }}>{r.studentId || "—"}</td>
+                    <td style={{ padding: "11px 14px", fontWeight: "600", color: "#0C4A6E" }}>{name}</td>
+                    <td style={{ padding: "11px 14px", color: "#0369A1", fontFamily: "monospace", fontSize: "0.82rem" }}>{sid}</td>
                     <td style={{ padding: "11px 14px" }}>
-                      <span style={{ background: r.type === "Add" ? "#DCFCE7" : "#FEE2E2", color: r.type === "Add" ? "#15803D" : "#DC2626", padding: "3px 10px", borderRadius: "20px", fontSize: "0.75rem", fontWeight: "700" }}>{r.type}</span>
+                      <span style={{ background: type === "Add" ? "#DCFCE7" : "#FEE2E2", color: type === "Add" ? "#15803D" : "#DC2626", padding: "3px 10px", borderRadius: "20px", fontSize: "0.75rem", fontWeight: "700" }}>{type}</span>
                     </td>
-                    <td style={{ padding: "11px 14px", color: "#0C4A6E", fontWeight: "500" }}>{r.course}</td>
+                    <td style={{ padding: "11px 14px", color: "#0C4A6E", fontWeight: "500" }}>{course}</td>
                     <td style={{ padding: "11px 14px", color: "#0369A1", fontSize: "0.82rem", maxWidth: "160px" }}>{r.reason || "—"}</td>
-                    <td style={{ padding: "11px 14px", color: "#0369A1", fontSize: "0.82rem", whiteSpace: "nowrap" }}>{fmt(r.submittedAt)}</td>
+                    <td style={{ padding: "11px 14px", color: "#0369A1", fontSize: "0.82rem", whiteSpace: "nowrap" }}>{fmt(submittedAt)}</td>
                     <td style={{ padding: "11px 14px" }}>
                       <span style={{ background: sc.bg, color: sc.text, padding: "3px 10px", borderRadius: "20px", fontSize: "0.75rem", fontWeight: "700" }}>{r.status}</span>
                     </td>

@@ -1,5 +1,5 @@
 const LETTER_GRADES = new Set([
-  "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "F",
+  "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D", "F",
 ]);
 
 /**

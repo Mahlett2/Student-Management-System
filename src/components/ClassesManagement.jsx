@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { createClass, updateClass, deleteClass } from "../api/operations";
+import { apiGet } from "../api/client";
 
 const DEPARTMENTS = [
   "Software Engineering", "Computer Science",
@@ -21,10 +23,22 @@ export default function ClassesManagement({ goBack }) {
   const [filterDept, setFilterDept] = useState("");
 
   useEffect(() => {
-    const s = localStorage.getItem("classes");
-    if (s) setClasses(JSON.parse(s));
+    apiGet("/classes/?page_size=500")
+      .then((data) => {
+        if (data) {
+          const list = data.results ?? data;
+          const normalized = list.map((c) => ({
+            ...c,
+            department: typeof c.department === "object" ? c.department?.name : c.department ?? "",
+          }));
+          setClasses(normalized);
+        }
+      })
+      .catch(() => {
+        const s = localStorage.getItem("classes");
+        if (s) setClasses(JSON.parse(s));
+      });
   }, []);
-  useEffect(() => { localStorage.setItem("classes", JSON.stringify(classes)); }, [classes]);
 
   const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setErrors((er) => ({ ...er, [k]: undefined })); };
 
@@ -37,19 +51,28 @@ export default function ClassesManagement({ goBack }) {
     return e;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
-    if (editId) {
-      setClasses((p) => p.map((c) => c.id === editId ? { ...c, ...form } : c));
-    } else {
-      setClasses((p) => [...p, { id: Date.now(), ...form }]);
-    }
+    try {
+      if (editId) {
+        await updateClass(editId, form);
+        setClasses((p) => p.map((c) => c.id === editId ? { ...c, ...form } : c));
+      } else {
+        const created = await createClass(form);
+        if (created) setClasses((p) => [...p, { ...form, id: created.id }]);
+      }
+    } catch (err) { alert(err.data ? JSON.stringify(err.data) : err.message); return; }
     setForm(EMPTY); setEditId(null); setErrors({}); setView("list");
   };
 
   const handleEdit = (c) => { setForm({ ...c }); setEditId(c.id); setView("form"); };
-  const handleDelete = (id) => { if (window.confirm("Delete this class?")) setClasses((p) => p.filter((c) => c.id !== id)); };
+  const handleDelete = async (id) => {
+    if (window.confirm("Delete this class?")) {
+      try { await deleteClass(id); setClasses((p) => p.filter((c) => c.id !== id)); }
+      catch (err) { alert("Delete failed: " + err.message); }
+    }
+  };
 
   const filtered = classes.filter((c) => {
     const q = search.toLowerCase();

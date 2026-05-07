@@ -1,4 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
+import { apiGet } from "../api/client";
+import {
+  createAttendanceSession,
+  updateAttendanceSession,
+  deleteAttendanceSession,
+} from "../api/operations";
 
 const DEPARTMENTS = [
   "Software Engineering", "Computer Science",
@@ -7,26 +13,42 @@ const DEPARTMENTS = [
   "Mechanical Engineering", "Chemical Engineering",
 ];
 
-const LOW_THRESHOLD = 75; // % below this = flagged
+const LOW_THRESHOLD = 75;
 
 export default function AttendanceManagement({ goBack }) {
-  const [sessions, setSessions] = useState([]); // { id, date, className, department, records: [{studentName, studentId, status}] }
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [view, setView] = useState("list"); // list | mark | summary
   const [sessionForm, setSessionForm] = useState({ date: "", className: "", department: "" });
   const [sessionErrors, setSessionErrors] = useState({});
-  const [activeSession, setActiveSession] = useState(null); // session being marked
-  const [studentRows, setStudentRows] = useState([]); // [{studentName, studentId, status}]
+  const [activeSession, setActiveSession] = useState(null);
+  const [studentRows, setStudentRows] = useState([]);
   const [newStudent, setNewStudent] = useState({ studentName: "", studentId: "" });
   const [filterDept, setFilterDept] = useState("");
   const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
+  // Load sessions from API on mount
   useEffect(() => {
-    const s = localStorage.getItem("attendance_sessions");
-    if (s) setSessions(JSON.parse(s));
+    apiGet("/attendance/sessions/")
+      .then((data) => {
+        const list = Array.isArray(data) ? data : (data?.results || []);
+        // Normalize field names
+        const normalized = list.map((s) => ({
+          ...s,
+          className: s.class_name || s.className || "",
+          records: (s.records || []).map((r) => ({
+            studentName: r.student_name || r.studentName || "",
+            studentId:   r.student_code || r.studentId || "",
+            status:      r.status || "Present",
+          })),
+        }));
+        setSessions(normalized);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
-  useEffect(() => {
-    localStorage.setItem("attendance_sessions", JSON.stringify(sessions));
-  }, [sessions]);
 
   // ── Summary: per student across all sessions ──
   const summary = useMemo(() => {
@@ -67,10 +89,11 @@ export default function AttendanceManagement({ goBack }) {
   const startSession = () => {
     const e = validateSession();
     if (Object.keys(e).length) { setSessionErrors(e); return; }
-    const sess = { id: Date.now(), ...sessionForm, records: [] };
+    const sess = { id: null, ...sessionForm, records: [] }; // id=null means new
     setActiveSession(sess);
     setStudentRows([]);
     setSessionErrors({});
+    setSaveError("");
     setView("mark");
   };
 
@@ -89,34 +112,78 @@ export default function AttendanceManagement({ goBack }) {
 
   const removeRow = (idx) => setStudentRows((p) => p.filter((_, i) => i !== idx));
 
-  const saveSession = () => {
+  const saveSession = async () => {
     if (studentRows.length === 0) return;
-    const saved = { ...activeSession, records: studentRows };
-    setSessions((p) => {
-      const exists = p.find((s) => s.id === saved.id);
-      return exists ? p.map((s) => s.id === saved.id ? saved : s) : [...p, saved];
-    });
-    setActiveSession(null);
-    setStudentRows([]);
-    setView("list");
+    setSaving(true);
+    setSaveError("");
+    try {
+      const payload = {
+        date:       activeSession.date,
+        className:  activeSession.className,
+        department: activeSession.department,
+        records:    studentRows,
+      };
+
+      if (activeSession.id) {
+        // Update existing
+        const updated = await updateAttendanceSession(activeSession.id, payload);
+        const normalized = {
+          ...updated,
+          className: updated.class_name || updated.className || activeSession.className,
+          records: (updated.records || studentRows).map((r) => ({
+            studentName: r.student_name || r.studentName || "",
+            studentId:   r.student_code || r.studentId || "",
+            status:      r.status || "Present",
+          })),
+        };
+        setSessions((p) => p.map((s) => s.id === activeSession.id ? normalized : s));
+      } else {
+        // Create new
+        const created = await createAttendanceSession(payload);
+        const normalized = {
+          ...created,
+          className: created.class_name || created.className || activeSession.className,
+          records: (created.records || studentRows).map((r) => ({
+            studentName: r.student_name || r.studentName || "",
+            studentId:   r.student_code || r.studentId || "",
+            status:      r.status || "Present",
+          })),
+        };
+        setSessions((p) => [...p, normalized]);
+      }
+
+      setActiveSession(null);
+      setStudentRows([]);
+      setView("list");
+    } catch (err) {
+      setSaveError(err.message || "Failed to save attendance. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const deleteSession = (id) => {
-    if (window.confirm("Delete this attendance session?"))
+  const deleteSession = async (id) => {
+    if (!window.confirm("Delete this attendance session?")) return;
+    try {
+      await deleteAttendanceSession(id);
       setSessions((p) => p.filter((s) => s.id !== id));
+    } catch (err) {
+      alert(err.message || "Failed to delete session.");
+    }
   };
 
   const editSession = (sess) => {
     setSessionForm({ date: sess.date, className: sess.className, department: sess.department });
     setActiveSession(sess);
     setStudentRows([...sess.records]);
+    setSaveError("");
     setView("mark");
   };
 
   const statusStyle = (status) => {
     if (status === "Present") return { bg: "#dcfce7", text: "#15803d" };
-    if (status === "Absent") return { bg: "#fee2e2", text: "#dc2626" };
-    return { bg: "#fef9c3", text: "#a16207" }; // Late
+    if (status === "Absent")  return { bg: "#fee2e2", text: "#dc2626" };
+    return { bg: "#fef9c3", text: "#a16207" };
   };
 
   const rateColor = (rate) => {
@@ -124,6 +191,14 @@ export default function AttendanceManagement({ goBack }) {
     if (rate >= LOW_THRESHOLD) return { bg: "#fef9c3", text: "#a16207" };
     return { bg: "#fee2e2", text: "#dc2626" };
   };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: "center", padding: "3rem", color: "#6b7280" }}>
+        ⏳ Loading attendance sessions...
+      </div>
+    );
+  }
 
   /* ── MARK ATTENDANCE VIEW ── */
   if (view === "mark") return (
@@ -134,6 +209,12 @@ export default function AttendanceManagement({ goBack }) {
         <p style={{ color: "#6b7280", fontSize: "0.85rem", marginBottom: "1.5rem" }}>
           {activeSession?.className} · {activeSession?.department} · {activeSession?.date}
         </p>
+
+        {saveError && (
+          <div style={{ background: "#fee2e2", color: "#dc2626", padding: "10px 14px", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.875rem" }}>
+            ❌ {saveError}
+          </div>
+        )}
 
         {/* Add student row */}
         <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap" }}>
@@ -186,8 +267,8 @@ export default function AttendanceManagement({ goBack }) {
         )}
 
         <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.5rem" }}>
-          <button onClick={saveSession} style={saveBtn} disabled={studentRows.length === 0}>
-            💾 Save Attendance ({studentRows.length} students)
+          <button onClick={saveSession} style={{ ...saveBtn, opacity: (studentRows.length === 0 || saving) ? 0.6 : 1, cursor: (studentRows.length === 0 || saving) ? "not-allowed" : "pointer" }} disabled={studentRows.length === 0 || saving}>
+            {saving ? "⏳ Saving..." : `💾 Save Attendance (${studentRows.length} students)`}
           </button>
           <button onClick={() => { setView("list"); setActiveSession(null); setStudentRows([]); }} style={cancelBtn}>Cancel</button>
         </div>
@@ -236,12 +317,12 @@ export default function AttendanceManagement({ goBack }) {
             <tbody>
               {filteredSummary.map((s, i) => {
                 const col = rateColor(s.rate);
-                const flagged = s.rate < LOW_THRESHOLD;
+                const isFlagged = s.rate < LOW_THRESHOLD;
                 return (
-                  <tr key={s.id || s.name} style={{ background: flagged ? "#fff7f7" : i % 2 === 0 ? "white" : "#faf5ff", borderBottom: "1px solid #f3f4f6" }}>
+                  <tr key={s.id || s.name} style={{ background: isFlagged ? "#fff7f7" : i % 2 === 0 ? "white" : "#faf5ff", borderBottom: "1px solid #f3f4f6" }}>
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        {flagged && <span title="Low attendance">⚠️</span>}
+                        {isFlagged && <span title="Low attendance">⚠️</span>}
                         <span style={{ fontWeight: "500" }}>{s.name}</span>
                       </div>
                     </td>
@@ -261,7 +342,7 @@ export default function AttendanceManagement({ goBack }) {
                     </td>
                     <td style={{ padding: "12px 16px" }}>
                       <span style={{ background: col.bg, color: col.text, padding: "3px 10px", borderRadius: "20px", fontSize: "0.75rem", fontWeight: "600" }}>
-                        {flagged ? "⚠️ Low" : s.rate >= 90 ? "✅ Good" : "🟡 Fair"}
+                        {isFlagged ? "⚠️ Low" : s.rate >= 90 ? "✅ Good" : "🟡 Fair"}
                       </span>
                     </td>
                   </tr>
@@ -338,7 +419,7 @@ export default function AttendanceManagement({ goBack }) {
             <tbody>
               {[...sessions].reverse().map((sess, i) => {
                 const present = sess.records.filter((r) => r.status === "Present").length;
-                const absent = sess.records.filter((r) => r.status === "Absent").length;
+                const absent  = sess.records.filter((r) => r.status === "Absent").length;
                 return (
                   <tr key={sess.id} style={{ background: i % 2 === 0 ? "white" : "#faf5ff", borderBottom: "1px solid #f3f4f6" }}>
                     <td style={{ padding: "12px 16px", fontWeight: "500" }}>{sess.date}</td>

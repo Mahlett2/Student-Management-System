@@ -1,18 +1,40 @@
 import { useState, useEffect } from "react";
+import { approveCafeteria, rejectCafeteria } from "../api/operations";
+import { apiGet } from "../api/client";
 
 export default function CafeteriaMonitor({ goBack }) {
-  const [requests, setRequests] = useState(() =>
-    JSON.parse(localStorage.getItem("cafeteria_requests") || "[]")
-  );
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [filterChoice, setFilterChoice] = useState("");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    localStorage.setItem("cafeteria_requests", JSON.stringify(requests));
-  }, [requests]);
+    apiGet("/cafeteria/?page_size=500")
+      .then((data) => {
+        if (data) {
+          const list = data.results ?? data;
+          const normalized = list.map((r) => ({
+            ...r,
+            studentName: r.student_name || r.studentName || "",
+            studentId:   r.student_code || r.studentId || "",
+            department:  typeof r.department === "object" ? r.department?.name : r.department || "",
+            submittedAt: r.submitted_at || r.submittedAt || "",
+          }));
+          setRequests(normalized);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
-  const updateStatus = (id, status) => {
-    setRequests((p) => p.map((r) => r.id === id ? { ...r, status } : r));
+  const updateStatus = async (id, status) => {
+    try {
+      if (status === "Approved") await approveCafeteria(id);
+      else if (status === "Rejected") await rejectCafeteria(id);
+      setRequests((p) => p.map((r) => r.id === id ? { ...r, status } : r));
+    } catch (err) {
+      alert("Update failed: " + (err.message || "Unknown error"));
+    }
   };
 
   const filtered = requests.filter((r) => {
@@ -35,7 +57,7 @@ export default function CafeteriaMonitor({ goBack }) {
         <div>
           <h2 style={{ color: "#0C4A6E", margin: 0 }}>🍽️ Cafeteria Requests</h2>
           <p style={{ color: "#0369A1", margin: "4px 0 0", fontSize: "0.85rem" }}>
-            {requests.length} total · {pending > 0 && <span style={{ color: "#A16207", fontWeight: "700" }}>⏳ {pending} pending</span>}
+            {loading ? "Loading..." : `${requests.length} total · `}{pending > 0 && <span style={{ color: "#A16207", fontWeight: "700" }}>⏳ {pending} pending</span>}
           </p>
         </div>
         <button onClick={goBack} style={{ padding: "8px 16px", background: "linear-gradient(135deg,#0F172A,#1E293B)", color: "#38BDF8", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600" }}>⬅ Back</button>

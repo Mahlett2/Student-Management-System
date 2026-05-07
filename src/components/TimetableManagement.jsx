@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { createTimetableEntry, updateTimetableEntry, deleteTimetableEntry } from "../api/operations";
+import { apiGet } from "../api/client";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const TIME_SLOTS = [
@@ -29,10 +31,23 @@ export default function TimetableManagement({ goBack }) {
   const [filterDept, setFilterDept] = useState(DEPARTMENTS[0]);
 
   useEffect(() => {
-    const s = localStorage.getItem("timetable");
-    if (s) setEntries(JSON.parse(s));
+    apiGet("/timetable/?page_size=500")
+      .then((data) => {
+        if (data) {
+          const normalised = (data.results ?? data).map((e) => ({
+            ...e,
+            timeSlot: e.time_slot ?? e.timeSlot ?? "",
+            classSection: e.class_section ?? e.classSection ?? "",
+            teacher: e.teacher_name ?? e.teacher ?? "",
+          }));
+          setEntries(normalised);
+        }
+      })
+      .catch(() => {
+        const s = localStorage.getItem("timetable");
+        if (s) setEntries(JSON.parse(s));
+      });
   }, []);
-  useEffect(() => { localStorage.setItem("timetable", JSON.stringify(entries)); }, [entries]);
 
   const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setErrors((er) => ({ ...er, [k]: undefined })); };
 
@@ -45,19 +60,28 @@ export default function TimetableManagement({ goBack }) {
     return e;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
-    if (editId) {
-      setEntries((p) => p.map((en) => en.id === editId ? { ...en, ...form } : en));
-    } else {
-      setEntries((p) => [...p, { id: Date.now(), ...form }]);
-    }
+    try {
+      if (editId) {
+        await updateTimetableEntry(editId, form);
+        setEntries((p) => p.map((en) => en.id === editId ? { ...en, ...form } : en));
+      } else {
+        const created = await createTimetableEntry(form);
+        if (created) setEntries((p) => [...p, { ...form, id: created.id }]);
+      }
+    } catch (err) { alert(err.data ? JSON.stringify(err.data) : err.message); return; }
     setForm(EMPTY); setEditId(null); setErrors({}); setView("grid");
   };
 
   const handleEdit = (en) => { setForm({ ...en }); setEditId(en.id); setView("form"); };
-  const handleDelete = (id) => { if (window.confirm("Remove this slot?")) setEntries((p) => p.filter((en) => en.id !== id)); };
+  const handleDelete = async (id) => {
+    if (window.confirm("Remove this slot?")) {
+      try { await deleteTimetableEntry(id); setEntries((p) => p.filter((en) => en.id !== id)); }
+      catch (err) { alert("Delete failed: " + err.message); }
+    }
+  };
 
   // Build grid: day × timeSlot for selected dept
   const deptEntries = entries.filter((en) => en.department === filterDept);

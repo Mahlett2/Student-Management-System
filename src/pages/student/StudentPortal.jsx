@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useResults } from "../../data/resultsStore";
 import { useAddDrop } from "../../data/addDropStore";
@@ -13,6 +13,7 @@ import Register from "./Register";
 import Timetable from "./Timetable";
 import ChangePassword from "./ChangePassword";
 import MealPlan from "./MealPlan";
+import { apiGet, clearTokens } from "../../api/client";
 
 const NAV = [
   { id: "home",           icon: "🏠", label: "Dashboard" },
@@ -29,19 +30,62 @@ const NAV = [
 
 export default function StudentPortal() {
   const [page, setPage] = useState("home");
+  const [student, setStudent] = useState(() => {
+    const stored = localStorage.getItem("student");
+    return stored ? JSON.parse(stored) : {};
+  });
   const navigate = useNavigate();
   const { results } = useResults();
   const { requests } = useAddDrop();
   const { announcements } = useAnnouncements();
   const { settings } = useSettings();
+  const [attendanceRate, setAttendanceRate] = useState(null);
 
-  const stored = localStorage.getItem("student");
-  const student = stored ? JSON.parse(stored) : {};
+  // Load student profile from API on mount
+  useEffect(() => {
+    apiGet("/students/me/")
+      .then((data) => {
+        if (data) {
+          const profile = {
+            name:       data.full_name ?? data.name ?? "",
+            studentId:  data.student_id ?? data.studentId ?? "",
+            department: data.department_name ?? data.department ?? "",
+            year:       data.year ?? "",
+            semester:   data.semester ?? "",
+            email:      data.email ?? "",
+            id:         data.id,
+          };
+          setStudent(profile);
+          localStorage.setItem("student", JSON.stringify(profile));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Load attendance rate from API
+  useEffect(() => {
+    apiGet("/attendance/sessions/")
+      .then((data) => {
+        const list = Array.isArray(data) ? data : (data?.results || []);
+        const myName = student.name?.toLowerCase() || "";
+        let total = 0, present = 0;
+        list.forEach((sess) => {
+          const rec = (sess.records || []).find(
+            (r) => (r.student_name || r.studentName || "").toLowerCase() === myName
+          );
+          if (rec) { total++; if (rec.status === "Present") present++; }
+        });
+        setAttendanceRate(total > 0 ? Math.round((present / total) * 100) : null);
+      })
+      .catch(() => {});
+  }, [student.name]);
 
   const logout = () => {
+    clearTokens();
     sessionStorage.removeItem("auth");
     localStorage.removeItem("role");
     localStorage.removeItem("student");
+    localStorage.removeItem("current_user");
     navigate("/login");
   };
 
@@ -55,15 +99,6 @@ export default function StudentPortal() {
   const gpa = numericGrades.length > 0
     ? (numericGrades.reduce((s, g) => s + Number(g.grade), 0) / numericGrades.length).toFixed(1)
     : "—";
-
-  // Attendance rate from localStorage
-  const sessions = JSON.parse(localStorage.getItem("attendance_sessions") || "[]");
-  let totalSessions = 0, presentSessions = 0;
-  sessions.forEach((sess) => {
-    const rec = sess.records.find((r) => r.studentName?.toLowerCase() === student.name?.toLowerCase());
-    if (rec) { totalSessions++; if (rec.status === "Present") presentSessions++; }
-  });
-  const attendanceRate = totalSessions > 0 ? Math.round((presentSessions / totalSessions) * 100) : null;
 
   // Pending add/drop
   const pendingRequests = requests.filter(

@@ -14,12 +14,12 @@ export default function AnnouncementPage({ role = "student" }) {
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("");
 
-  // Filter by audience
+  // Filter by audience — handle both "Students Only" (old) and "Students" (API)
   const visible = useMemo(() =>
     announcements.filter((a) => {
       if (a.audience === "All") return true;
-      if (role === "student" && a.audience === "Students Only") return true;
-      if (role === "teacher" && a.audience === "Teachers Only") return true;
+      if (role === "student" && (a.audience === "Students Only" || a.audience === "Students")) return true;
+      if (role === "teacher" && (a.audience === "Teachers Only" || a.audience === "Teachers")) return true;
       return false;
     }),
     [announcements, role]

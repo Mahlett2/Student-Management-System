@@ -1,60 +1,116 @@
-import { createContext, useContext, useState, useEffect } from "react";
+/**
+ * Auth store — now backed by the Django REST API.
+ * Replaces the old localStorage-only implementation.
+ *
+ * login()  → POST /api/auth/login/  → stores JWT tokens + user
+ * logout() → POST /api/auth/logout/ → blacklists refresh token
+ * can()    → checks role-based page access
+ */
 
-// Default super admin — always exists
-const DEFAULT_ADMINS = [
-  { id: 1, username: "admin", password: "Admin@123!", fullName: "Super Administrator", email: "admin@university.edu", role: "Super Admin", status: "Active" },
-  { id: 2, username: "staff1", password: "Staff@123!", fullName: "Staff Member", email: "staff@university.edu", role: "Staff", status: "Active" },
-];
+import { createContext, useContext, useState, useCallback } from "react";
+import { apiPost, saveTokens, clearTokens, getAccessToken } from "../api/client";
 
-// Bump this version whenever default passwords change — forces a reset
-const ADMIN_VERSION = "v2";
-
-function loadAdmins() {
-  const version = localStorage.getItem("admin_accounts_version");
-  if (version !== ADMIN_VERSION) {
-    // Stale data — reset to new defaults
-    localStorage.setItem("admin_accounts_version", ADMIN_VERSION);
-    localStorage.removeItem("admin_accounts");
-    return DEFAULT_ADMINS;
-  }
-  const s = localStorage.getItem("admin_accounts");
-  return s ? JSON.parse(s) : DEFAULT_ADMINS;
-}
-
-// Permissions per role
+// ── Role → allowed pages mapping (mirrors backend roles) ─────────────────
 export const ROLE_PERMISSIONS = {
-  "Super Admin": ["students", "teachers", "classes", "subjects", "timetable", "results", "attendance", "announcements", "users"],
-  "Staff":       ["students", "teachers", "classes", "subjects", "timetable", "results", "attendance", "announcements"],
+  admin:   ["students", "teachers", "classes", "subjects", "timetable", "results", "attendance", "announcements", "users", "settings"],
+  teacher: ["classes", "subjects", "timetable", "results", "attendance", "announcements"],
+  student: ["results", "attendance", "announcements"],
 };
+
+// ── Load persisted user from localStorage ─────────────────────────────────
+function loadUser() {
+  try {
+    const s = localStorage.getItem("current_user");
+    return s ? JSON.parse(s) : null;
+  } catch {
+    return null;
+  }
+}
 
 const AdminContext = createContext(null);
 
 export function AdminProvider({ children }) {
-  const [admins, setAdmins] = useState(() => loadAdmins());
+  const [currentAdmin, setCurrentAdmin] = useState(() => loadUser());
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const [currentAdmin, setCurrentAdmin] = useState(() => {
-    const s = localStorage.getItem("current_admin");
-    return s ? JSON.parse(s) : null;
-  });
+  /**
+   * Login — calls POST /api/auth/login/
+   * Returns true on success, false on failure.
+   */
+  const login = useCallback(async (username, password) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiPost("/auth/login/", { username, password }, { auth: false });
+      if (!data) throw new Error("No response from server");
 
-  useEffect(() => { localStorage.setItem("admin_accounts", JSON.stringify(admins)); }, [admins]);
-  useEffect(() => { localStorage.setItem("current_admin", currentAdmin ? JSON.stringify(currentAdmin) : ""); }, [currentAdmin]);
+      // Save JWT tokens
+      saveTokens({ access: data.access, refresh: data.refresh });
 
-  const login = (username, password) => {
-    const found = admins.find((a) => a.username === username && a.password === password && a.status === "Active");
-    if (found) { setCurrentAdmin(found); return true; }
-    return false;
-  };
+      // Normalise user shape to match what the rest of the app expects
+      const user = {
+        ...data.user,
+        fullName: data.user.full_name,   // alias for legacy components
+      };
 
-  const logout = () => { setCurrentAdmin(null); localStorage.removeItem("current_admin"); };
+      setCurrentAdmin(user);
+      localStorage.setItem("current_user", JSON.stringify(user));
 
-  const can = (page) => {
+      // Also store role for legacy checks (TeacherPortal, StudentPortal)
+      localStorage.setItem("role", user.role);
+
+      return true;
+    } catch (err) {
+      setError(err.message || "Invalid credentials");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Logout — blacklists the refresh token then clears local state.
+   */
+  const logout = useCallback(async () => {
+    try {
+      const refresh = localStorage.getItem("refresh_token");
+      if (refresh) {
+        await apiPost("/auth/logout/", { refresh });
+      }
+    } catch {
+      // Ignore errors — clear locally regardless
+    }
+    clearTokens();
+    localStorage.removeItem("current_user");
+    localStorage.removeItem("role");
+    setCurrentAdmin(null);
+  }, []);
+
+  /**
+   * Check if the current user has access to a given page/section.
+   */
+  const can = useCallback((page) => {
     if (!currentAdmin) return false;
-    return (ROLE_PERMISSIONS[currentAdmin.role] || []).includes(page);
-  };
+    const role = currentAdmin.role;
+    return (ROLE_PERMISSIONS[role] || []).includes(page);
+  }, [currentAdmin]);
+
+  /**
+   * Check if a valid access token exists (used by ProtectedRoute).
+   */
+  const isAuthenticated = Boolean(currentAdmin && getAccessToken());
 
   return (
-    <AdminContext.Provider value={{ admins, setAdmins, currentAdmin, login, logout, can }}>
+    <AdminContext.Provider value={{
+      currentAdmin,
+      login,
+      logout,
+      can,
+      isAuthenticated,
+      loading,
+      error,
+    }}>
       {children}
     </AdminContext.Provider>
   );

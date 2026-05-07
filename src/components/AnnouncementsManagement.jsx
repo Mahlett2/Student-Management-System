@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAnnouncements } from "../data/announcementsStore";
+import { createAnnouncement, updateAnnouncement, deleteAnnouncement } from "../api/operations";
 
 const AUDIENCES = ["All", "Students Only", "Teachers Only"];
 const CATEGORIES = ["General", "Academic", "Exam", "Event", "Urgent"];
@@ -14,7 +15,13 @@ const categoryStyle = {
   Urgent:   { bg: "#fee2e2", text: "#dc2626" },
 };
 
-const audienceIcon = { "All": "🌐", "Students Only": "🎓", "Teachers Only": "👨‍🏫" };
+const audienceIcon = { "All": "🌐", "Students Only": "🎓", "Teachers Only": "👨‍🏫", "Students": "🎓", "Teachers": "👨‍🏫", "Admin": "🛡️" };
+
+// Map backend values → display labels
+const audienceLabel = (a) => {
+  const map = { "Students": "Students Only", "Teachers": "Teachers Only" };
+  return map[a] || a;
+};
 
 export default function AnnouncementsManagement({ goBack }) {
   const { announcements, setAnnouncements } = useAnnouncements();
@@ -38,19 +45,46 @@ export default function AnnouncementsManagement({ goBack }) {
     return e;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
-    if (editId) {
-      setAnnouncements((p) => p.map((a) => a.id === editId ? { ...a, ...form, updatedAt: new Date().toISOString() } : a));
-    } else {
-      setAnnouncements((p) => [{ id: Date.now(), ...form, createdAt: new Date().toISOString() }, ...p]);
+    try {
+      if (editId) {
+        const updated = await updateAnnouncement(editId, form);
+        if (updated) setAnnouncements((p) => p.map((a) => a.id === editId ? { ...a, ...form } : a));
+      } else {
+        const created = await createAnnouncement(form);
+        if (created) setAnnouncements((p) => [{ ...form, id: created.id, posted_at: created.posted_at }, ...p]);
+      }
+    } catch (err) {
+      alert(err.data ? JSON.stringify(err.data) : err.message);
+      return;
     }
     setForm(EMPTY); setEditId(null); setErrors({}); setView("list");
   };
 
-  const handleEdit = (a) => { setForm({ title: a.title, body: a.body, audience: a.audience, category: a.category }); setEditId(a.id); setView("form"); };
-  const handleDelete = (id) => { if (window.confirm("Delete this announcement?")) setAnnouncements((p) => p.filter((a) => a.id !== id)); };
+  const handleEdit = (a) => {
+    // Map backend values back to frontend labels for the dropdown
+    const audienceMap = { "Students": "Students Only", "Teachers": "Teachers Only" };
+    setForm({
+      title: a.title,
+      body: a.body,
+      audience: audienceMap[a.audience] || a.audience,
+      category: a.category,
+    });
+    setEditId(a.id);
+    setView("form");
+  };
+  const handleDelete = async (id) => {
+    if (window.confirm("Delete this announcement?")) {
+      try {
+        await deleteAnnouncement(id);
+        setAnnouncements((p) => p.filter((a) => a.id !== id));
+      } catch (err) {
+        alert("Delete failed: " + (err.message || "Unknown error"));
+      }
+    }
+  };
 
   const filtered = announcements.filter((a) => {
     const q = search.toLowerCase();
@@ -171,7 +205,7 @@ export default function AnnouncementsManagement({ goBack }) {
                         {a.category}
                       </span>
                       <span style={{ background: "#ede9fe", color: "#5b21b6", padding: "3px 10px", borderRadius: "20px", fontSize: "0.75rem" }}>
-                        {audienceIcon[a.audience]} {a.audience}
+                        {audienceIcon[a.audience] || "🌐"} {audienceLabel(a.audience)}
                       </span>
                       <span style={{ color: "#9ca3af", fontSize: "0.78rem" }}>{fmt(a.updatedAt || a.createdAt)}</span>
                     </div>

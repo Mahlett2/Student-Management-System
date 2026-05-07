@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { validatePassword, passwordStrength } from "../../utils/validators";
+import { apiPost } from "../../api/client";
 
 const DEPARTMENTS = [
   "Software Engineering", "Computer Science",
@@ -9,7 +10,7 @@ const DEPARTMENTS = [
 ];
 
 export default function TeacherProfile() {
-  const stored = localStorage.getItem("teacher");
+  const stored = localStorage.getItem("current_user");
   const teacher = stored ? JSON.parse(stored) : {};
   const profileKey = `teacher_profile_${teacher.id || teacher.username}`;
 
@@ -43,6 +44,7 @@ export default function TeacherProfile() {
   const [showNew, setShowNew] = useState(false);
   const [passErrors, setPassErrors] = useState({});
   const [passSaved, setPassSaved] = useState(false);
+  const [passLoading, setPassLoading] = useState(false);
 
   const strength = passwordStrength(newPass);
 
@@ -63,18 +65,14 @@ export default function TeacherProfile() {
     if (Object.keys(e).length) { setErrors(e); return; }
     setProfile(draft);
     localStorage.setItem(profileKey, JSON.stringify(draft));
-    // Update teacher in localStorage
-    const updated = { ...teacher, ...draft };
-    localStorage.setItem("teacher", JSON.stringify(updated));
     setEditing(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
 
-  const handlePasswordChange = () => {
+  const handlePasswordChange = async () => {
     const e = {};
     if (!currentPass) e.currentPass = "Current password is required";
-    else if (currentPass !== teacher.password) e.currentPass = "Current password is incorrect";
     const passErr = validatePassword(newPass);
     if (passErr) e.newPass = passErr;
     else if (newPass === currentPass) e.newPass = "New password must differ from current";
@@ -82,11 +80,25 @@ export default function TeacherProfile() {
     else if (confirmPass !== newPass) e.confirmPass = "Passwords do not match";
     if (Object.keys(e).length) { setPassErrors(e); return; }
 
-    const updatedTeacher = { ...teacher, password: newPass };
-    localStorage.setItem("teacher", JSON.stringify(updatedTeacher));
-    setCurrentPass(""); setNewPass(""); setConfirmPass(""); setPassErrors({});
-    setPassSaved(true);
-    setTimeout(() => setPassSaved(false), 3000);
+    setPassLoading(true);
+    try {
+      await apiPost("/auth/change-password/", {
+        old_password: currentPass,
+        new_password: newPass,
+      });
+      setCurrentPass(""); setNewPass(""); setConfirmPass(""); setPassErrors({});
+      setPassSaved(true);
+      setTimeout(() => setPassSaved(false), 3000);
+    } catch (err) {
+      const data = err.data || {};
+      const e = {};
+      if (data.old_password) e.currentPass = Array.isArray(data.old_password) ? data.old_password[0] : data.old_password;
+      else if (data.detail) e.currentPass = data.detail;
+      else e.currentPass = "Current password is incorrect";
+      setPassErrors(e);
+    } finally {
+      setPassLoading(false);
+    }
   };
 
   const data = editing ? draft : profile;
@@ -116,10 +128,10 @@ export default function TeacherProfile() {
       <div style={{ background: "linear-gradient(135deg,#0F172A,#1E293B)", borderRadius: "16px", padding: "20px 24px", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <div style={{ width: "52px", height: "52px", borderRadius: "50%", background: "linear-gradient(135deg,#0EA5E9,#38BDF8)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "800", fontSize: "1.3rem", color: "#0C4A6E", flexShrink: 0 }}>
-            {teacher.name?.charAt(0).toUpperCase() || "T"}
+            {(teacher.full_name || teacher.name)?.charAt(0).toUpperCase() || "T"}
           </div>
           <div>
-            <h2 style={{ color: "#E0F2FE", margin: 0, fontSize: "1.15rem", fontWeight: "800" }}>{teacher.name}</h2>
+            <h2 style={{ color: "#E0F2FE", margin: 0, fontSize: "1.15rem", fontWeight: "800" }}>{teacher.full_name || teacher.name}</h2>
             <p style={{ color: "#38BDF8", margin: "3px 0 0", fontSize: "0.8rem" }}>{teacher.department}</p>
           </div>
         </div>
@@ -145,7 +157,7 @@ export default function TeacherProfile() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 1.5rem", marginBottom: "1rem" }}>
           <div style={{ marginBottom: "1rem" }}>
             <label style={lbl}>Full Name</label>
-            <p style={{ ...val, background: "#BAE6FD", padding: "9px 12px", borderRadius: "8px" }}>{teacher.name}</p>
+            <p style={{ ...val, background: "#BAE6FD", padding: "9px 12px", borderRadius: "8px" }}>{teacher.full_name || teacher.name}</p>
           </div>
           <div style={{ marginBottom: "1rem" }}>
             <label style={lbl}>Username</label>
@@ -159,11 +171,8 @@ export default function TeacherProfile() {
           <F label="Department" k="department" options={DEPARTMENTS} />
           <F label="Qualification" k="qualification" placeholder="e.g. PhD, MSc, BSc" />
           <F label="Specialization" k="specialization" placeholder="e.g. Machine Learning, Networks" />
-          <F label="Office Room" k="officeRoom" placeholder="e.g. Room 204, Block B" />
-          <F label="Office Hours" k="officeHours" placeholder="e.g. Mon-Wed 2:00-4:00 PM" />
           <F label="Gender" k="gender" options={["Male", "Female"]} />
           <F label="Date of Birth" k="dob" type="date" />
-          <F label="Join Date" k="joinDate" type="date" />
           <div style={{ gridColumn: "1/-1" }}>
             <F label="Address" k="address" placeholder="City, Region" />
           </div>
@@ -225,7 +234,9 @@ export default function TeacherProfile() {
               )}
               {passErrors.confirmPass && <p style={errStyle}>{passErrors.confirmPass}</p>}
             </div>
-            <button onClick={handlePasswordChange} style={saveBtn}>🔒 Update Password</button>
+            <button onClick={handlePasswordChange} disabled={passLoading} style={{ ...saveBtn, opacity: passLoading ? 0.7 : 1, cursor: passLoading ? "not-allowed" : "pointer" }}>
+              {passLoading ? "⏳ Updating..." : "🔒 Update Password"}
+            </button>
           </div>
         )}
       </div>

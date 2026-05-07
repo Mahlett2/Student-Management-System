@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { apiGet } from "../../api/client";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const TIME_SLOTS = [
@@ -18,20 +19,39 @@ const SLOT_COLORS = [
 ];
 
 export default function TeacherTimetable() {
-  const stored = localStorage.getItem("teacher");
+  const stored = localStorage.getItem("current_user");
   const teacher = stored ? JSON.parse(stored) : {};
 
-  // Read timetable from admin
-  const entries = JSON.parse(localStorage.getItem("timetable") || "[]");
+  const [allEntries, setAllEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiGet("/timetable/")
+      .then((data) => {
+        const list = Array.isArray(data) ? data : (data?.results || []);
+        const normalized = list.map((e) => ({
+          ...e,
+          subject:      e.subject_name || e.subject || "",
+          teacher:      e.teacher_name || e.teacher || "",
+          timeSlot:     e.time_slot || e.timeSlot || "",
+          classSection: e.class_section || e.classSection || "",
+          department:   typeof e.department === "object" ? e.department?.name : e.department || "",
+        }));
+        setAllEntries(normalized);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   // Filter by teacher name OR department
-  const myEntries = useMemo(() =>
-    entries.filter((e) =>
-      e.teacher?.toLowerCase() === teacher.name?.toLowerCase() ||
-      e.department === teacher.department
-    ),
-    [entries, teacher]
-  );
+  const myEntries = useMemo(() => {
+    const name = teacher.full_name?.toLowerCase() || "";
+    const dept = teacher.department || "";
+    return allEntries.filter((e) =>
+      e.teacher?.toLowerCase() === name ||
+      e.department === dept
+    );
+  }, [allEntries, teacher]);
 
   // Assign consistent colors per subject
   const subjectColors = useMemo(() => {
@@ -49,15 +69,21 @@ export default function TeacherTimetable() {
   const getCell = (day, slot) =>
     myEntries.find((e) => e.day === day && e.timeSlot === slot);
 
-  // Today's schedule
   const today = new Date().toLocaleDateString("en-US", { weekday: "long" });
   const todayEntries = myEntries
     .filter((e) => e.day === today)
     .sort((a, b) => TIME_SLOTS.indexOf(a.timeSlot) - TIME_SLOTS.indexOf(b.timeSlot));
 
-  // Weekly stats
-  const totalClasses = myEntries.length;
+  const totalClasses   = myEntries.length;
   const uniqueSubjects = [...new Set(myEntries.map((e) => e.subject))];
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: "center", padding: "3rem", color: "#0369A1" }}>
+        ⏳ Loading timetable...
+      </div>
+    );
+  }
 
   return (
     <div>

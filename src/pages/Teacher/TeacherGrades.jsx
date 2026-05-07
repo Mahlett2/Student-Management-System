@@ -1,12 +1,16 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useResults } from "../../data/resultsStore";
 import { useStudents } from "../../data/studentsStore";
+import { createResult, updateResult, deleteResult } from "../../api/operations";
+import { apiGet } from "../../api/client";
 
 const PERIODS = [
   "Semester 1 2024",
   "Semester 2 2024",
   "Semester 1 2025",
   "Semester 2 2025",
+  "Semester 1 2026",
+  "Semester 2 2026",
 ];
 
 // Score components with their max marks
@@ -66,45 +70,56 @@ function gradeColor(grade) {
 }
 
 function totalColor(total) {
-  if (total >= 85) return "#15803D";
-  if (total >= 70) return "#1D4ED8";
-  if (total >= 50) return "#A16207";
-  return "#DC2626";
+  if (total > 90)  return "#15803D";  // A+
+  if (total >= 85) return "#15803D";  // A
+  if (total >= 80) return "#15803D";  // A-
+  if (total >= 75) return "#1D4ED8";  // B+
+  if (total >= 70) return "#1D4ED8";  // B
+  if (total >= 65) return "#1D4ED8";  // B-
+  if (total >= 60) return "#A16207";  // C+
+  if (total >= 55) return "#A16207";  // C
+  if (total >= 50) return "#A16207";  // C-
+  if (total >= 45) return "#C2410C";  // D
+  return "#DC2626";                   // F
 }
 
 export default function TeacherGrades() {
   const { results, setResults } = useResults();
   const { students: adminStudents } = useStudents();
 
-  const stored = localStorage.getItem("teacher");
+  const stored = localStorage.getItem("current_user");
   const teacher = stored ? JSON.parse(stored) : {};
+  const teacherName    = teacher.full_name        || teacher.name        || "";
+  const teacherDept    = teacher.assignedDepartment || teacher.department || "";
+  const teacherSection = teacher.assignedSection  || "";
+  const teacherYear    = teacher.assignedYear     || "";
+  // Subject and semester are fixed from admin assignment
+  const assignedSubject  = teacher.assignedSubject  || "";
+  const assignedSemester = teacher.assignedSemester || "";
 
-  const [view, setView] = useState("list"); // list | form
+  const [view, setView] = useState("list");
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [errors, setErrors] = useState({});
   const [search, setSearch] = useState("");
-  const [filterSubject, setFilterSubject] = useState("");
   const [filterPeriod, setFilterPeriod] = useState("");
+  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
 
-  // Students in this teacher's department
+  // Students in this teacher's assigned section + department + year
   const myStudents = useMemo(
-    () => adminStudents.filter((s) => s.department === teacher.department),
-    [adminStudents, teacher.department]
+    () => adminStudents.filter((s) => {
+      const deptMatch = !teacherDept    || s.department === teacherDept || teacherDept === "Fresh";
+      const secMatch  = !teacherSection || s.section    === teacherSection;
+      const yearMatch = !teacherYear    || s.year       === teacherYear;
+      return deptMatch && secMatch && yearMatch;
+    }),
+    [adminStudents, teacherDept, teacherSection, teacherYear]
   );
-
-  // Subjects for this department
-  const adminSubjects = JSON.parse(localStorage.getItem("subjects") || "[]");
-  const mySubjects = adminSubjects.filter((s) => s.department === teacher.department);
-  const subjectNames =
-    mySubjects.length > 0
-      ? mySubjects.map((s) => s.name)
-      : ["Data Structures", "Algorithms", "Database Systems", "Web Development", "Software Engineering"];
 
   // Only results uploaded by this teacher
   const myResults = useMemo(
-    () => results.filter((r) => r.uploadedBy === teacher.name),
-    [results, teacher.name]
+    () => results.filter((r) => r.uploadedBy === teacherName),
+    [results, teacherName]
   );
 
   const uniqueSubjects = [...new Set(myResults.map((r) => r.subject))].filter(Boolean);
@@ -118,10 +133,9 @@ export default function TeacherGrades() {
           r.studentName?.toLowerCase().includes(q) ||
           r.studentId?.toLowerCase().includes(q) ||
           r.subject?.toLowerCase().includes(q)) &&
-        (!filterSubject || r.subject === filterSubject) &&
         (!filterPeriod  || r.period  === filterPeriod)
     );
-  }, [myResults, search, filterSubject, filterPeriod]);
+  }, [myResults, search, filterPeriod]);
 
   // Live total & grade from current form values
   const liveTotal = computeTotal(form);
@@ -141,8 +155,12 @@ export default function TeacherGrades() {
       ...f,
       studentName: name,
       studentId: s ? (s.studentId || "") : "",
+      // Auto-fill subject and period from assignment
+      subject: assignedSubject || f.subject,
+      period:  assignedSemester ? `${assignedSemester} ${new Date().getFullYear()}` : f.period,
     }));
     setErrors((er) => ({ ...er, studentName: undefined }));
+    setShowStudentDropdown(false);
   };
 
   const validate = () => {
@@ -161,7 +179,7 @@ export default function TeacherGrades() {
     return e;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
 
@@ -171,8 +189,11 @@ export default function TeacherGrades() {
     const entry = {
       studentName:     form.studentName,
       studentId:       form.studentId,
-      subject:         form.subject,
-      period:          form.period,
+      studentCode:     form.studentId,
+      subject:         assignedSubject || form.subject,
+      period:          form.period || (assignedSemester ? `${assignedSemester} ${new Date().getFullYear()}` : ""),
+      assessmentType:  "Final",
+      score:           total,
       scoreAssignment: form.scoreAssignment,
       scoreTest1:      form.scoreTest1,
       scoreMid:        form.scoreMid,
@@ -180,14 +201,21 @@ export default function TeacherGrades() {
       scoreFinal:      form.scoreFinal,
       total,
       grade,
-      department:  teacher.department,
-      uploadedBy:  teacher.name,
+      department:  teacherDept,
+      uploadedBy:  teacherName,
     };
 
-    if (editId) {
-      setResults((p) => p.map((r) => (r.id === editId ? { ...r, ...entry } : r)));
-    } else {
-      setResults((p) => [...p, { id: Date.now(), ...entry }]);
+    try {
+      if (editId) {
+        await updateResult(editId, { ...entry, assessmentType: "Final" });
+        setResults((p) => p.map((r) => (r.id === editId ? { ...r, ...entry } : r)));
+      } else {
+        const created = await createResult(entry);
+        setResults((p) => [...p, { id: created?.id ?? Date.now(), ...entry }]);
+      }
+    } catch (err) {
+      alert(err.data ? JSON.stringify(err.data) : err.message);
+      return;
     }
 
     setForm(EMPTY_FORM);
@@ -212,9 +240,15 @@ export default function TeacherGrades() {
     setView("form");
   };
 
-  const handleDelete = (id) => {
-    if (window.confirm("Delete this result?"))
-      setResults((p) => p.filter((r) => r.id !== id));
+  const handleDelete = async (id) => {
+    if (window.confirm("Delete this result?")) {
+      try {
+        await deleteResult(id);
+        setResults((p) => p.filter((r) => r.id !== id));
+      } catch (err) {
+        alert("Delete failed: " + (err.message || "Unknown error"));
+      }
+    }
   };
 
   /* ════════════════════════════════════════
@@ -234,17 +268,42 @@ export default function TeacherGrades() {
         {/* ── Student + Subject + Period ── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 1.5rem" }}>
           <F label="Student *" err={errors.studentName}>
-            {myStudents.length > 0 ? (
-              <select style={inp(errors.studentName)} value={form.studentName} onChange={handleStudentSelect}>
-                <option value="">Select student...</option>
-                {myStudents.map((s) => (
-                  <option key={s.id}>{s.fullName || s.name}</option>
-                ))}
-              </select>
-            ) : (
-              <input style={inp(errors.studentName)} placeholder="Student name" value={form.studentName}
-                onChange={setField("studentName")} />
-            )}
+            <div style={{ position: "relative" }}>
+              <input
+                style={inp(errors.studentName)}
+                placeholder="Click to select student..."
+                value={form.studentName}
+                onFocus={() => setShowStudentDropdown(true)}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, studentName: e.target.value, studentId: "" }));
+                  setShowStudentDropdown(true);
+                  setErrors((er) => ({ ...er, studentName: undefined }));
+                }}
+                autoComplete="off"
+              />
+              {showStudentDropdown && (
+                <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "white", border: "1px solid #d1d5db", borderRadius: "8px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", zIndex: 100, maxHeight: "200px", overflowY: "auto" }}>
+                  {myStudents
+                    .filter((s) => !form.studentName || (s.fullName || s.name)?.toLowerCase().includes(form.studentName.toLowerCase()))
+                    .map((s) => (
+                      <div
+                        key={s.id}
+                        onClick={() => handleStudentSelect({ target: { value: s.fullName || s.name } })}
+                        style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
+                        onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+                      >
+                        <span style={{ fontWeight: "500", color: "#374151" }}>{s.fullName || s.name}</span>
+                        <span style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "#6b7280" }}>{s.studentId}</span>
+                      </div>
+                    ))
+                  }
+                  {myStudents.length === 0 && (
+                    <div style={{ padding: "12px 14px", color: "#6b7280", fontSize: "0.85rem" }}>No students in assigned class</div>
+                  )}
+                </div>
+              )}
+            </div>
           </F>
 
           <F label="Student ID">
@@ -256,18 +315,24 @@ export default function TeacherGrades() {
             />
           </F>
 
-          <F label="Subject *" err={errors.subject}>
-            <select style={inp(errors.subject)} value={form.subject} onChange={setField("subject")}>
-              <option value="">Select subject...</option>
-              {subjectNames.map((s) => <option key={s}>{s}</option>)}
-            </select>
+          {/* Subject — auto-filled from assignment, read-only */}
+          <F label="Subject">
+            <input
+              style={{ ...inp(false), background: "#E0F2FE", color: "#0369A1", cursor: "default" }}
+              value={assignedSubject || form.subject || ""}
+              readOnly
+              placeholder="Auto-filled from assignment"
+            />
           </F>
 
-          <F label="Period *" err={errors.period}>
-            <select style={inp(errors.period)} value={form.period} onChange={setField("period")}>
-              <option value="">Select period...</option>
-              {PERIODS.map((p) => <option key={p}>{p}</option>)}
-            </select>
+          {/* Period — auto-filled from assignment, read-only */}
+          <F label="Period">
+            <input
+              style={{ ...inp(false), background: "#E0F2FE", color: "#0369A1", cursor: "default" }}
+              value={form.period || (assignedSemester ? `${assignedSemester} ${new Date().getFullYear()}` : "")}
+              readOnly
+              placeholder="Auto-filled from assignment"
+            />
           </F>
         </div>
 
@@ -407,7 +472,7 @@ export default function TeacherGrades() {
         <div>
           <h2 style={{ color: "#0C4A6E", margin: 0, fontWeight: "800" }}>📊 Upload Results</h2>
           <p style={{ color: "#0369A1", margin: "4px 0 0", fontSize: "0.85rem" }}>
-            {teacher.department} · {myResults.length} result{myResults.length !== 1 ? "s" : ""} uploaded
+            {teacherDept} · {myResults.length} result{myResults.length !== 1 ? "s" : ""} uploaded
           </p>
         </div>
         <button onClick={() => { setForm(EMPTY_FORM); setEditId(null); setErrors({}); setView("form"); }} style={saveBtn}>
@@ -476,10 +541,6 @@ export default function TeacherGrades() {
             border: "1px solid rgba(14,165,233,0.35)", background: "#BAE6FD",
             color: "#0C4A6E", fontSize: "0.875rem", outline: "none",
           }} />
-        <select value={filterSubject} onChange={(e) => setFilterSubject(e.target.value)} style={filterSel}>
-          <option value="">All Subjects</option>
-          {uniqueSubjects.map((s) => <option key={s}>{s}</option>)}
-        </select>
         <select value={filterPeriod} onChange={(e) => setFilterPeriod(e.target.value)} style={filterSel}>
           <option value="">All Periods</option>
           {uniquePeriods.map((p) => <option key={p}>{p}</option>)}

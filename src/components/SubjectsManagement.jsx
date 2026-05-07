@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { createSubject, updateSubject, deleteSubject } from "../api/operations";
+import { apiGet } from "../api/client";
 
 const DEPARTMENTS = [
   "Software Engineering", "Computer Science",
@@ -23,10 +25,22 @@ export default function SubjectsManagement({ goBack }) {
   const [filterType, setFilterType] = useState("");
 
   useEffect(() => {
-    const s = localStorage.getItem("subjects");
-    if (s) setSubjects(JSON.parse(s));
+    apiGet("/subjects/?page_size=500")
+      .then((data) => {
+        if (data) {
+          const list = data.results ?? data;
+          const normalized = list.map((s) => ({
+            ...s,
+            department: typeof s.department === "object" ? s.department?.name : s.department ?? "",
+          }));
+          setSubjects(normalized);
+        }
+      })
+      .catch(() => {
+        const s = localStorage.getItem("subjects");
+        if (s) setSubjects(JSON.parse(s));
+      });
   }, []);
-  useEffect(() => { localStorage.setItem("subjects", JSON.stringify(subjects)); }, [subjects]);
 
   const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setErrors((er) => ({ ...er, [k]: undefined })); };
 
@@ -39,19 +53,28 @@ export default function SubjectsManagement({ goBack }) {
     return e;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
-    if (editId) {
-      setSubjects((p) => p.map((s) => s.id === editId ? { ...s, ...form } : s));
-    } else {
-      setSubjects((p) => [...p, { id: Date.now(), ...form }]);
-    }
+    try {
+      if (editId) {
+        await updateSubject(editId, form);
+        setSubjects((p) => p.map((s) => s.id === editId ? { ...s, ...form } : s));
+      } else {
+        const created = await createSubject(form);
+        if (created) setSubjects((p) => [...p, { ...form, id: created.id }]);
+      }
+    } catch (err) { alert(err.data ? JSON.stringify(err.data) : err.message); return; }
     setForm(EMPTY); setEditId(null); setErrors({}); setView("list");
   };
 
   const handleEdit = (s) => { setForm({ ...s }); setEditId(s.id); setView("form"); };
-  const handleDelete = (id) => { if (window.confirm("Delete this subject?")) setSubjects((p) => p.filter((s) => s.id !== id)); };
+  const handleDelete = async (id) => {
+    if (window.confirm("Delete this subject?")) {
+      try { await deleteSubject(id); setSubjects((p) => p.filter((s) => s.id !== id)); }
+      catch (err) { alert("Delete failed: " + err.message); }
+    }
+  };
 
   const filtered = subjects.filter((s) => {
     const q = search.toLowerCase();

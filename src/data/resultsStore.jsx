@@ -1,45 +1,47 @@
-import { createContext, useContext, useState, useEffect } from "react";
-
 /**
- * Result record shape:
- * {
- *   id: number,
- *   studentName: string,
- *   studentId: string,        // WOUR/XXXX/YY — auto-filled from student list
- *   department: string,
- *   subject: string,
- *   period: string,
- *   uploadedBy: string,       // teacher name
- *
- *   // Component scores (each stored as a number string or "")
- *   scoreAssignment: string,  // max 10
- *   scoreTest1: string,       // max 10
- *   scoreMid: string,         // max 30
- *   scoreProject: string,     // max 10
- *   scoreFinal: string,       // max 40
- *
- *   // Computed — stored for quick display, always re-derivable
- *   total: number,            // sum of entered scores
- *   grade: string,            // letter grade derived from total
- * }
+ * resultsStore — backed by Django REST API.
+ * GET/POST/PUT/DELETE /api/results/
+ * Keeps the same { results, setResults } interface.
  */
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { apiGet } from "../api/client";
 
 const ResultsContext = createContext(null);
 
 export function ResultsProvider({ children }) {
-  const [results, setResults] = useState([]);
+  const [results, setResultsState] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const s = localStorage.getItem("results_data");
-    if (s) setResults(JSON.parse(s));
+    const role = localStorage.getItem("role");
+    if (!role) return;
+    setLoading(true);
+    apiGet("/results/?page_size=1000")
+      .then((data) => {
+        if (data) {
+          // Normalise API shape → legacy shape used by components
+          const normalised = (data.results ?? data).map((r) => ({
+            ...r,
+            studentName: r.student_name ?? r.studentName ?? "",
+            studentId:   r.student_code ?? r.studentId ?? "",
+            uploadedBy:  r.uploaded_by_name ?? r.uploadedBy ?? "",
+            assessmentType: r.assessment_type ?? r.assessmentType ?? "",
+          }));
+          setResultsState(normalised);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem("results_data", JSON.stringify(results));
-  }, [results]);
+  const setResults = useCallback((updater) => {
+    setResultsState((prev) =>
+      typeof updater === "function" ? updater(prev) : updater
+    );
+  }, []);
 
   return (
-    <ResultsContext.Provider value={{ results, setResults }}>
+    <ResultsContext.Provider value={{ results, setResults, loading }}>
       {children}
     </ResultsContext.Provider>
   );
