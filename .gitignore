@@ -1,0 +1,32 @@
+# Python / Django
+backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
+backend/staticfiles/
+backend/media/
+backend/backend_env/
+backend_env/
+**/backend_env/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Node / React
+node_modules/
+student-management/node_modules/
+student-management/dist/
+student-management/.env
+student-management/.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.kiro/

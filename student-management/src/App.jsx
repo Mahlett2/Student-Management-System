@@ -1,7 +1,6 @@
 import { Routes, Route } from "react-router-dom";
 
 import Login from "./pages/Login";
-import StudentLogin from "./pages/StudentLogin";
 import StudentPortal from "./pages/Student/StudentPortal";
 import Dashboard from "./pages/Dashboard";
 
@@ -9,6 +8,7 @@ import StudentProfile from "./pages/Student/Profile";
 import StudentGrades from "./pages/Student/Grades";
 import StudentRegister from "./pages/Student/Register";
 import AddDrop from "./pages/Student/AddDrop";
+import AnnouncementPage from "./pages/Announcement";
 
 import TeacherPortal from "./pages/Teacher/TeacherPortal";
 
@@ -19,7 +19,7 @@ function App() {
     <Routes>
       {/* PUBLIC */}
       <Route path="/login" element={<Login />} />
-      <Route path="/student-login" element={<StudentLogin />} />
+      <Route path="/student-login" element={<Login />} />
 
       {/* STUDENT PORTAL */}
       <Route
@@ -61,6 +61,14 @@ function App() {
         element={
           <ProtectedRoute>
             <AddDrop />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/student/announcements"
+        element={
+          <ProtectedRoute>
+            <AnnouncementPage role="student" />
           </ProtectedRoute>
         }
       />
