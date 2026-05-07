@@ -1,3 +1,4 @@
+
 # Wollo University Student Management System
 
 A full-stack university management system built with Django (backend) + React (frontend).
@@ -214,3 +215,6 @@ Open that URL in your browser.
 **"Database does not exist" error**
 - Make sure you created the database: `CREATE DATABASE wollo_university;`
 - Check your `.env` has the correct `DB_PASSWORD`
+
+
+
