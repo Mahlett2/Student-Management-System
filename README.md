@@ -39,7 +39,7 @@ Then go into the project folder:
 cd YOUR_REPO_NAME
 ```
 
-> **What is `YOUR_REPO_NAME`?** It is the name of the folder that was created when you cloned. For example if the GitHub link is `https://github.com/mahlet/wollo-university` then the folder name is `wollo-university` and you write `cd wollo-university`.
+> Replace `YOUR_REPO_NAME` with the actual folder name created after cloning. For example if the GitHub link is `https://github.com/mahlet/wollo-university` then write `cd wollo-university`.
 
 ---
 
@@ -165,11 +165,11 @@ Open that URL in your browser.
 
 ## Login credentials
 
-| Role    | Username         | Password     |
-|---------|-----------------|--------------|
-| Admin   | admin           | Admin@123!   |
-| Student | firstname.fathername | Student ID (e.g. WOUR/1234/20) |
-| Teacher | firstname.fathername | Password set by admin |
+| Role    | Username              | Password                        |
+|---------|-----------------------|---------------------------------|
+| Admin   | admin                 | Admin@123!                      |
+| Student | firstname.fathername  | Student ID (e.g. WOUR/1234/20)  |
+| Teacher | firstname.fathername  | Password set by admin           |
 
 ---
 
