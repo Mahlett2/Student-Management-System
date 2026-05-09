@@ -96,7 +96,9 @@ export default function Login() {
       if (user.role === "student") navigate("/student-portal");
 
     } catch (err) {
-      if (err.status === 400 || err.status === 401) {
+      if (err.isBackendDown) {
+        setLoginError("Backend server is not running. Start it with: python manage.py runserver 8000");
+      } else if (err.status === 400 || err.status === 401) {
         setLoginError("Invalid username or password.");
       } else {
         setLoginError(err.message || "Login failed. Please try again.");
@@ -156,12 +158,12 @@ export default function Login() {
             {/* Password */}
             <div className="input-group">
               <label>Password</label>
-              <div style={{ position: "relative" }}>
+              <div style={{ position: "relative", width: "100%" }}>
                 <input type={showPass ? "text" : "password"} placeholder="Enter password"
                   value={password}
                   onChange={(e) => { setPassword(e.target.value); setErrors((er) => ({ ...er, password: undefined })); }}
                   onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                  style={{ borderColor: errors.password ? "#EF4444" : undefined, paddingRight: "42px" }} />
+                  style={{ borderColor: errors.password ? "#EF4444" : undefined, paddingRight: "42px", width: "100%", boxSizing: "border-box" }} />
                 <button type="button" onClick={() => setShowPass((s) => !s)}
                   style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#0369A1", fontSize: "1rem" }}>
                   {showPass ? "🙈" : "👁️"}

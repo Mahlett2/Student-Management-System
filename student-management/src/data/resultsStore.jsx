@@ -22,10 +22,17 @@ export function ResultsProvider({ children }) {
           // Normalise API shape → legacy shape used by components
           const normalised = (data.results ?? data).map((r) => ({
             ...r,
-            studentName: r.student_name ?? r.studentName ?? "",
-            studentId:   r.student_code ?? r.studentId ?? "",
-            uploadedBy:  r.uploaded_by_name ?? r.uploadedBy ?? "",
-            assessmentType: r.assessment_type ?? r.assessmentType ?? "",
+            studentName:     r.student_name      ?? r.studentName     ?? "",
+            studentId:       r.student_code      ?? r.studentId       ?? "",
+            uploadedBy:      r.uploaded_by_name  ?? r.uploadedBy      ?? "",
+            assessmentType:  r.assessment_type   ?? r.assessmentType  ?? "",
+            total:           r.total             ?? r.score           ?? null,
+            // Score components — support both camelCase and snake_case
+            scoreAssignment: r.scoreAssignment   ?? r.score_assignment ?? "",
+            scoreTest1:      r.scoreTest1        ?? r.score_test1      ?? "",
+            scoreMid:        r.scoreMid          ?? r.score_mid        ?? "",
+            scoreProject:    r.scoreProject      ?? r.score_project    ?? "",
+            scoreFinal:      r.scoreFinal        ?? r.score_final      ?? "",
           }));
           setResultsState(normalised);
         }

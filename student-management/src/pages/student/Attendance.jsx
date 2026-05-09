@@ -7,63 +7,36 @@ export default function Attendance() {
   const stored = localStorage.getItem("current_user");
   const user = stored ? JSON.parse(stored) : {};
 
-  const [sessions, setSessions] = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [view, setView]         = useState("summary"); // summary | bySubject | history
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView]       = useState("summary"); // summary | history
 
+  // Use /api/attendance/my/ — returns records for the logged-in student only
   useEffect(() => {
-    apiGet("/attendance/sessions/")
+    apiGet("/attendance/my/?page_size=1000")
       .then((data) => {
         const list = Array.isArray(data) ? data : (data?.results || []);
-        const normalized = list.map((s) => ({
-          ...s,
-          className: s.class_name || s.className || "",
-          records: (s.records || []).map((r) => ({
-            studentName: r.student_name || r.studentName || "",
-            studentId:   r.student_code || r.studentId   || "",
-            status:      r.status       || "Present",
-          })),
+        // Normalize field names from StudentAttendanceSerializer
+        const normalized = list.map((r) => ({
+          id:        r.id,
+          date:      r.session_date || r.date || "",
+          className: r.class_name   || r.className || "",
+          subject:   r.subject      || "—",
+          status:    r.status       || "Absent",
         }));
-        setSessions(normalized);
+        setRecords(normalized.sort((a, b) => new Date(b.date) - new Date(a.date)));
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const myName = user.full_name?.toLowerCase() || "";
-  const myCode = user.student_id || user.username || "";
-
-  // Sessions where this student appears
-  const mySessions = useMemo(() => {
-    return sessions
-      .filter((sess) =>
-        sess.records.some(
-          (r) => r.studentName?.toLowerCase() === myName || r.studentId === myCode
-        )
-      )
-      .map((sess) => {
-        const rec = sess.records.find(
-          (r) => r.studentName?.toLowerCase() === myName || r.studentId === myCode
-        );
-        return {
-          id:        sess.id,
-          date:      sess.date,
-          className: sess.className,
-          subject:   sess.subject || "—",
-          department: sess.department || "",
-          status:    rec?.status || "Absent",
-        };
-      })
-      .sort((a, b) => new Date(b.date) - new Date(a.date));
-  }, [sessions, myName, myCode]);
-
   // Group by subject
   const bySubject = useMemo(() => {
     const map = {};
-    mySessions.forEach((s) => {
-      const key = s.subject || s.className;
+    records.forEach((r) => {
+      const key = r.subject !== "—" ? r.subject : r.className;
       if (!map[key]) map[key] = { subject: key, sessions: [] };
-      map[key].sessions.push(s);
+      map[key].sessions.push(r);
     });
     return Object.values(map).map((sub) => {
       const total   = sub.sessions.length;
@@ -73,13 +46,13 @@ export default function Attendance() {
       const rate    = total > 0 ? Math.round(((present + late * 0.5) / total) * 100) : 0;
       return { ...sub, total, present, late, absent, rate };
     }).sort((a, b) => a.rate - b.rate);
-  }, [mySessions]);
+  }, [records]);
 
   // Overall stats
-  const totalSessions = mySessions.length;
-  const totalPresent  = mySessions.filter((s) => s.status === "Present").length;
-  const totalLate     = mySessions.filter((s) => s.status === "Late").length;
-  const totalAbsent   = mySessions.filter((s) => s.status === "Absent").length;
+  const totalSessions = records.length;
+  const totalPresent  = records.filter((s) => s.status === "Present").length;
+  const totalLate     = records.filter((s) => s.status === "Late").length;
+  const totalAbsent   = records.filter((s) => s.status === "Absent").length;
   const overallRate   = totalSessions > 0
     ? Math.round(((totalPresent + totalLate * 0.5) / totalSessions) * 100)
     : null;
@@ -152,7 +125,7 @@ export default function Attendance() {
         </div>
       )}
 
-      {mySessions.length === 0 ? (
+      {records.length === 0 ? (
         <div style={{ textAlign: "center", padding: "3rem", background: "#7DD3FC", borderRadius: "14px", color: "#0369A1" }}>
           <p style={{ fontSize: "2.5rem", margin: "0 0 0.5rem" }}>📭</p>
           <p style={{ fontWeight: "600" }}>No attendance records found.</p>
@@ -163,8 +136,8 @@ export default function Attendance() {
           {/* View tabs */}
           <div style={{ display: "flex", gap: "6px", marginBottom: "1.25rem", background: "#7DD3FC", padding: "5px", borderRadius: "12px", border: "1px solid rgba(14,165,233,0.2)" }}>
             {[
-              { id: "summary",   label: "📊 By Subject" },
-              { id: "history",   label: `📋 Full History (${mySessions.length})` },
+              { id: "summary", label: "📊 By Subject" },
+              { id: "history", label: `📋 Full History (${records.length})` },
             ].map((t) => (
               <button key={t.id} onClick={() => setView(t.id)} style={{
                 flex: 1, padding: "10px", border: "none", borderRadius: "8px", cursor: "pointer",
@@ -199,12 +172,13 @@ export default function Attendance() {
                         <span style={{ background: col.bg, color: col.text, padding: "4px 14px", borderRadius: "20px", fontWeight: "800", fontSize: "0.9rem" }}>{sub.rate}%</span>
                       </div>
                     </div>
+                    {/* Progress bar */}
                     <div style={{ background: "rgba(14,165,233,0.15)", borderRadius: "99px", height: "8px" }}>
                       <div style={{ width: `${sub.rate}%`, background: col.bar, borderRadius: "99px", height: "8px", transition: "width 0.4s" }} />
                     </div>
                     {isFlagged && <p style={{ color: "#DC2626", fontSize: "0.72rem", margin: "4px 0 0", fontWeight: "600" }}>⚠️ Below {LOW_THRESHOLD}% minimum</p>}
 
-                    {/* Per-day breakdown for this subject */}
+                    {/* Per-day breakdown */}
                     <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "4px" }}>
                       {sub.sessions.map((s, i) => {
                         const sc = statusBadge(s.status);
@@ -234,7 +208,7 @@ export default function Attendance() {
                   </tr>
                 </thead>
                 <tbody>
-                  {mySessions.map((s, i) => {
+                  {records.map((s, i) => {
                     const sc = statusBadge(s.status);
                     return (
                       <tr key={s.id} style={{ background: i % 2 === 0 ? "#7DD3FC" : "#BAE6FD", borderBottom: "1px solid rgba(14,165,233,0.12)" }}>

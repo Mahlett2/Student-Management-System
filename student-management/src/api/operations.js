@@ -55,14 +55,20 @@ export async function deleteTeacher(id) {
 export async function createResult(data) {
   return apiPost("/results/", {
     student:         data.student || null,
-    student_name:    data.studentName,
-    student_code:    data.studentCode || data.studentId || "",
-    department:      data.department || null,
+    student_name:    data.student_name    || data.studentName  || "",
+    student_code:    data.student_code    || data.studentCode  || data.studentId || "",
+    department:      data.department      || null,
     subject:         data.subject,
     period:          data.period,
-    assessment_type: data.assessmentType,
-    score:           data.score ?? null,
-    grade:           data.grade || "",
+    assessment_type: data.assessment_type || data.assessmentType || "Final",
+    score:           data.score           ?? null,
+    grade:           data.grade           || "",
+    // Score components (camelCase — serializer aliases map these to snake_case)
+    scoreAssignment: data.scoreAssignment != null && data.scoreAssignment !== "" ? data.scoreAssignment : null,
+    scoreTest1:      data.scoreTest1      != null && data.scoreTest1      !== "" ? data.scoreTest1      : null,
+    scoreMid:        data.scoreMid        != null && data.scoreMid        !== "" ? data.scoreMid        : null,
+    scoreProject:    data.scoreProject    != null && data.scoreProject    !== "" ? data.scoreProject    : null,
+    scoreFinal:      data.scoreFinal      != null && data.scoreFinal      !== "" ? data.scoreFinal      : null,
   });
 }
 
@@ -70,8 +76,14 @@ export async function updateResult(id, data) {
   return apiPatch(`/results/${id}/`, {
     subject:         data.subject,
     period:          data.period,
-    assessment_type: data.assessmentType,
-    score:           data.score ?? null,
+    assessment_type: data.assessment_type || data.assessmentType || "Final",
+    score:           data.score           ?? null,
+    // Score components
+    scoreAssignment: data.scoreAssignment != null && data.scoreAssignment !== "" ? data.scoreAssignment : null,
+    scoreTest1:      data.scoreTest1      != null && data.scoreTest1      !== "" ? data.scoreTest1      : null,
+    scoreMid:        data.scoreMid        != null && data.scoreMid        !== "" ? data.scoreMid        : null,
+    scoreProject:    data.scoreProject    != null && data.scoreProject    !== "" ? data.scoreProject    : null,
+    scoreFinal:      data.scoreFinal      != null && data.scoreFinal      !== "" ? data.scoreFinal      : null,
   });
 }
 

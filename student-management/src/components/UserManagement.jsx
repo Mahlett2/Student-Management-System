@@ -44,25 +44,27 @@ function gradeColor(g) {
 function StudentGradeDetail({ student, onBack }) {
   const [grades, setGrades]   = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedYear, setSelectedYear]         = useState(null);
+  const [selectedSemester, setSelectedSemester] = useState(null);
+
+  const gpaMap = { "A+": 4.0, A: 4.0, "A-": 3.7, "B+": 3.3, B: 3.0, "B-": 2.7, "C+": 2.3, C: 2.0, "C-": 1.7, D: 1.0, F: 0.0 };
 
   useEffect(() => {
-    // Load all results and filter by student name
     apiGet("/results/?page_size=1000")
       .then((data) => {
         const list = Array.isArray(data) ? data : (data?.results || []);
         const normalized = list.map((r) => ({
           ...r,
-          studentName:    r.student_name    || r.studentName    || "",
-          studentId:      r.student_code    || r.studentId      || "",
-          uploadedBy:     r.uploaded_by_name || r.uploadedBy    || "",
-          assessmentType: r.assessment_type  || r.assessmentType || "",
-          scoreAssignment: r.scoreAssignment ?? r.score_assignment ?? "",
-          scoreTest1:      r.scoreTest1      ?? r.score_test1      ?? "",
-          scoreMid:        r.scoreMid        ?? r.score_mid        ?? "",
-          scoreProject:    r.scoreProject    ?? r.score_project    ?? "",
-          scoreFinal:      r.scoreFinal      ?? r.score_final      ?? "",
+          studentName:     r.student_name     || r.studentName    || "",
+          studentId:       r.student_code     || r.studentId      || "",
+          uploadedBy:      r.uploaded_by_name || r.uploadedBy     || "",
+          assessmentType:  r.assessment_type  || r.assessmentType || "",
+          scoreAssignment: r.scoreAssignment  ?? r.score_assignment ?? "",
+          scoreTest1:      r.scoreTest1       ?? r.score_test1      ?? "",
+          scoreMid:        r.scoreMid         ?? r.score_mid        ?? "",
+          scoreProject:    r.scoreProject     ?? r.score_project    ?? "",
+          scoreFinal:      r.scoreFinal       ?? r.score_final      ?? "",
         }));
-        // Filter for this student
         const myGrades = normalized.filter((r) =>
           r.studentName?.toLowerCase() === student.fullName?.toLowerCase() ||
           r.studentId === student.studentId
@@ -73,22 +75,39 @@ function StudentGradeDetail({ student, onBack }) {
       .finally(() => setLoading(false));
   }, [student]);
 
-  // Group by period (semester)
-  const grouped = useMemo(() => {
-    const map = {};
+  // Extract unique calendar years from periods → map to "Year 1", "Year 2"...
+  const academicYears = useMemo(() => {
+    const calYears = new Set();
     grades.forEach((g) => {
-      const key = g.period || "Unknown Period";
-      if (!map[key]) map[key] = [];
-      map[key].push(g);
+      const match = (g.period || "").match(/\d{4}/);
+      if (match) calYears.add(match[0]);
     });
-    // Sort periods
-    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+    return [...calYears].sort().map((calYear, idx) => ({
+      label: `Year ${idx + 1}`,
+      calYear,
+    }));
   }, [grades]);
 
+  // Grades for selected year + semester
+  const filteredGrades = useMemo(() => {
+    if (!selectedYear || !selectedSemester) return [];
+    return grades.filter((g) => {
+      const p = g.period || "";
+      return p.includes(selectedSemester) && p.includes(selectedYear.calYear);
+    });
+  }, [grades, selectedYear, selectedSemester]);
+
   // Overall GPA
-  const gpaMap = { "A+": 4.0, A: 4.0, "A-": 3.7, "B+": 3.3, B: 3.0, "B-": 2.7, "C+": 2.3, C: 2.0, "C-": 1.7, D: 1.0, F: 0.0 };
   const allGpa = grades.map((g) => gpaMap[toLetterGrade(g.grade)]).filter((v) => v !== undefined);
   const overallGpa = allGpa.length > 0 ? (allGpa.reduce((s, v) => s + v, 0) / allGpa.length).toFixed(2) : null;
+
+  // Semester GPA & avg for filtered set
+  const semGpaVals = filteredGrades.map((g) => gpaMap[toLetterGrade(g.grade)]).filter((v) => v !== undefined);
+  const semGpa = semGpaVals.length > 0 ? (semGpaVals.reduce((s, v) => s + v, 0) / semGpaVals.length).toFixed(2) : null;
+  const semTotals = filteredGrades.filter((g) => !isNaN(Number(g.total)));
+  const semAvg = semTotals.length > 0
+    ? (semTotals.reduce((s, g) => s + Number(g.total), 0) / semTotals.length).toFixed(1)
+    : null;
 
   return (
     <div>
@@ -123,78 +142,161 @@ function StudentGradeDetail({ student, onBack }) {
           <p>No grades uploaded yet for this student.</p>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-          {grouped.map(([period, periodGrades]) => {
-            const semGpa = periodGrades.map((g) => gpaMap[toLetterGrade(g.grade)]).filter((v) => v !== undefined);
-            const semGpaAvg = semGpa.length > 0 ? (semGpa.reduce((s, v) => s + v, 0) / semGpa.length).toFixed(2) : null;
-            const semTotal = periodGrades.reduce((s, g) => s + (Number(g.total) || 0), 0);
-            const semAvg = periodGrades.length > 0 ? (semTotal / periodGrades.length).toFixed(1) : null;
+        <>
+          {/* Step 1: Select Academic Year */}
+          <div style={{ marginBottom: "1.25rem" }}>
+            <p style={{ color: "#5b21b6", fontWeight: "700", fontSize: "0.82rem", textTransform: "uppercase", margin: "0 0 10px" }}>
+              📅 Select Academic Year
+            </p>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {academicYears.map((yr) => (
+                <button
+                  key={yr.calYear}
+                  onClick={() => { setSelectedYear(yr); setSelectedSemester(null); }}
+                  style={{
+                    padding: "10px 24px", borderRadius: "10px", border: "none", cursor: "pointer",
+                    fontWeight: "700", fontSize: "0.9rem",
+                    background: selectedYear?.calYear === yr.calYear
+                      ? "linear-gradient(135deg,#5b21b6,#7c3aed)"
+                      : "#ede9fe",
+                    color: selectedYear?.calYear === yr.calYear ? "white" : "#5b21b6",
+                    boxShadow: selectedYear?.calYear === yr.calYear ? "0 3px 10px rgba(91,33,182,0.3)" : "none",
+                    transition: "all 0.18s",
+                  }}
+                >
+                  {yr.label}
+                </button>
+              ))}
+            </div>
+          </div>
 
-            return (
-              <div key={period} style={{ background: "white", borderRadius: "14px", overflow: "hidden", boxShadow: "0 2px 12px #e9d5ff" }}>
-                {/* Period header */}
-                <div style={{ background: "linear-gradient(135deg,#5b21b6,#7c3aed)", padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <h3 style={{ color: "white", margin: 0, fontSize: "0.95rem", fontWeight: "700" }}>🗓️ {period}</h3>
-                  <div style={{ display: "flex", gap: "0.75rem" }}>
-                    {semGpaAvg && (
-                      <span style={{ background: "rgba(255,255,255,0.2)", color: "white", padding: "3px 12px", borderRadius: "20px", fontSize: "0.78rem", fontWeight: "700" }}>
-                        GPA: {semGpaAvg}
-                      </span>
-                    )}
-                    {semAvg && (
-                      <span style={{ background: "rgba(255,255,255,0.2)", color: "white", padding: "3px 12px", borderRadius: "20px", fontSize: "0.78rem", fontWeight: "700" }}>
-                        Avg: {semAvg}%
-                      </span>
-                    )}
+          {/* Step 2: Select Semester */}
+          {selectedYear && (
+            <div style={{ marginBottom: "1.25rem" }}>
+              <p style={{ color: "#5b21b6", fontWeight: "700", fontSize: "0.82rem", textTransform: "uppercase", margin: "0 0 10px" }}>
+                🗓️ Select Semester
+              </p>
+              <div style={{ display: "flex", gap: "8px" }}>
+                {["Semester 1", "Semester 2"].map((sem) => {
+                  const hasGrades = grades.some(
+                    (g) => g.period?.includes(sem) && g.period?.includes(selectedYear.calYear)
+                  );
+                  return (
+                    <button
+                      key={sem}
+                      onClick={() => setSelectedSemester(sem)}
+                      disabled={!hasGrades}
+                      style={{
+                        padding: "10px 24px", borderRadius: "10px", border: "none",
+                        cursor: hasGrades ? "pointer" : "not-allowed",
+                        fontWeight: "700", fontSize: "0.9rem",
+                        background: selectedSemester === sem
+                          ? "linear-gradient(135deg,#5b21b6,#7c3aed)"
+                          : hasGrades ? "#ede9fe" : "#f3f4f6",
+                        color: selectedSemester === sem ? "white" : hasGrades ? "#5b21b6" : "#9ca3af",
+                        opacity: hasGrades ? 1 : 0.5,
+                        transition: "all 0.18s",
+                      }}
+                    >
+                      {sem}
+                      {!hasGrades && <span style={{ fontSize: "0.72rem", marginLeft: "6px" }}>(no grades)</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Show grades table */}
+          {selectedYear && selectedSemester && (
+            <>
+              {/* Summary bar */}
+              <div style={{ background: "#ede9fe", borderRadius: "12px", padding: "14px 18px", marginBottom: "1rem", border: "1px solid #c4b5fd", display: "flex", gap: "1.5rem", flexWrap: "wrap", alignItems: "center" }}>
+                <div>
+                  <p style={{ color: "#5b21b6", fontWeight: "700", margin: 0 }}>
+                    {selectedYear.label} · {selectedSemester}
+                  </p>
+                  <p style={{ color: "#7c3aed", fontSize: "0.82rem", margin: "3px 0 0" }}>
+                    {filteredGrades.length} course{filteredGrades.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                {semGpa && (
+                  <div style={{ background: "linear-gradient(135deg,#5b21b6,#7c3aed)", borderRadius: "10px", padding: "8px 16px", textAlign: "center" }}>
+                    <p style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.7rem", fontWeight: "700", textTransform: "uppercase", margin: 0 }}>Semester GPA</p>
+                    <p style={{ color: "white", fontWeight: "800", fontSize: "1.2rem", margin: "2px 0 0" }}>{semGpa}</p>
+                  </div>
+                )}
+                {semAvg && (
+                  <div style={{ background: "#ddd6fe", borderRadius: "10px", padding: "8px 16px", textAlign: "center" }}>
+                    <p style={{ color: "#5b21b6", fontSize: "0.7rem", fontWeight: "700", textTransform: "uppercase", margin: 0 }}>Avg Score</p>
+                    <p style={{ color: "#5b21b6", fontWeight: "800", fontSize: "1.2rem", margin: "2px 0 0" }}>{semAvg}%</p>
+                  </div>
+                )}
+              </div>
+
+              {filteredGrades.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "2rem", background: "white", borderRadius: "12px", color: "#6b7280" }}>
+                  <p>No grades for {selectedSemester} of {selectedYear.label}.</p>
+                </div>
+              ) : (
+                <div style={{ background: "white", borderRadius: "14px", overflow: "hidden", boxShadow: "0 2px 12px #e9d5ff" }}>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "700px" }}>
+                      <thead>
+                        <tr style={{ background: "linear-gradient(135deg,#5b21b6,#7c3aed)" }}>
+                          {["#", "Subject", "Teacher", ...SCORE_COMPONENTS.map((c) => `${c.label}\n/${c.max}`), "Total", "Grade", "Status"].map((h) => (
+                            <th key={h} style={{ padding: "11px 10px", textAlign: "center", color: "white", fontSize: "0.72rem", fontWeight: "700", textTransform: "uppercase", whiteSpace: "pre-line", lineHeight: "1.3" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredGrades.map((g, i) => {
+                          const letter = toLetterGrade(g.grade);
+                          const col = gradeColor(g.grade);
+                          const passed = letter !== "F";
+                          return (
+                            <tr key={g.id || i} style={{ background: i % 2 === 0 ? "white" : "#faf5ff", borderBottom: "1px solid #f3f4f6" }}>
+                              <td style={{ padding: "10px 10px", textAlign: "center", color: "#6b7280", fontWeight: "600" }}>{i + 1}</td>
+                              <td style={{ padding: "10px 12px", fontWeight: "600", color: "#374151" }}>{g.subject}</td>
+                              <td style={{ padding: "10px 12px", color: "#6b7280", fontSize: "0.82rem" }}>{g.uploadedBy || "—"}</td>
+                              {SCORE_COMPONENTS.map((c) => (
+                                <td key={c.key} style={{ padding: "10px 8px", textAlign: "center", color: "#374151", fontSize: "0.85rem", fontWeight: "600" }}>
+                                  {g[c.key] !== "" && g[c.key] != null ? g[c.key] : <span style={{ color: "#d1d5db" }}>—</span>}
+                                </td>
+                              ))}
+                              <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                                <span style={{ fontWeight: "800", fontSize: "0.95rem", color: Number(g.total) >= 85 ? "#15803d" : Number(g.total) >= 50 ? "#1d4ed8" : "#dc2626" }}>
+                                  {g.total != null ? Number(g.total).toFixed(1) : "—"}
+                                </span>
+                              </td>
+                              <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                                <span style={{ background: col.bg, color: col.text, padding: "3px 10px", borderRadius: "20px", fontWeight: "800", fontSize: "0.82rem" }}>
+                                  {letter}
+                                </span>
+                              </td>
+                              <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                                <span style={{ background: passed ? "#dcfce7" : "#fee2e2", color: passed ? "#15803d" : "#dc2626", padding: "3px 10px", borderRadius: "20px", fontSize: "0.75rem", fontWeight: "700" }}>
+                                  {passed ? "✅ Pass" : "❌ Fail"}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
+              )}
+            </>
+          )}
 
-                {/* Grades table */}
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "700px" }}>
-                    <thead>
-                      <tr style={{ background: "#f3f4f6" }}>
-                        {["Subject", "Teacher", ...SCORE_COMPONENTS.map((c) => `${c.label}\n/${c.max}`), "Total", "Grade", "Letter"].map((h) => (
-                          <th key={h} style={{ padding: "10px 12px", textAlign: "center", fontWeight: "600", fontSize: "0.75rem", color: "#374151", whiteSpace: "pre-line", lineHeight: "1.3" }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {periodGrades.map((g, i) => {
-                        const letter = toLetterGrade(g.grade);
-                        const col = gradeColor(g.grade);
-                        return (
-                          <tr key={g.id} style={{ background: i % 2 === 0 ? "white" : "#faf5ff", borderBottom: "1px solid #f3f4f6" }}>
-                            <td style={{ padding: "10px 12px", fontWeight: "600", color: "#374151" }}>{g.subject}</td>
-                            <td style={{ padding: "10px 12px", color: "#6b7280", fontSize: "0.82rem" }}>{g.uploadedBy || "—"}</td>
-                            {SCORE_COMPONENTS.map((c) => (
-                              <td key={c.key} style={{ padding: "10px 8px", textAlign: "center", color: "#374151", fontSize: "0.85rem", fontWeight: "600" }}>
-                                {g[c.key] !== "" && g[c.key] != null ? g[c.key] : <span style={{ color: "#d1d5db" }}>—</span>}
-                              </td>
-                            ))}
-                            <td style={{ padding: "10px 8px", textAlign: "center" }}>
-                              <span style={{ fontWeight: "800", fontSize: "0.95rem", color: Number(g.total) >= 85 ? "#15803d" : Number(g.total) >= 50 ? "#1d4ed8" : "#dc2626" }}>
-                                {g.total != null ? Number(g.total).toFixed(1) : "—"}
-                              </span>
-                            </td>
-                            <td style={{ padding: "10px 8px", textAlign: "center" }}>
-                              <span style={{ fontWeight: "700", color: "#374151" }}>{g.grade || "—"}</span>
-                            </td>
-                            <td style={{ padding: "10px 8px", textAlign: "center" }}>
-                              <span style={{ background: col.bg, color: col.text, padding: "3px 10px", borderRadius: "20px", fontWeight: "800", fontSize: "0.82rem" }}>
-                                {letter}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          {!selectedYear && (
+            <div style={{ textAlign: "center", padding: "2rem", background: "#ede9fe", borderRadius: "12px", color: "#5b21b6" }}>
+              <p style={{ fontSize: "1.5rem", margin: "0 0 0.5rem" }}>☝️</p>
+              <p style={{ fontWeight: "600" }}>Select an academic year above to view grades.</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
