@@ -65,7 +65,16 @@ export async function api(path, opts = {}, auth = true) {
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
 
-  let res = await fetch(`${BASE_URL}${path}`, { ...opts, headers });
+  let res;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, { ...opts, headers });
+  } catch (networkErr) {
+    // Backend is not reachable at all (connection refused, etc.)
+    const err = new Error("Cannot connect to backend. Make sure it is running: python manage.py runserver 8000");
+    err.status = 0;
+    err.isBackendDown = true;
+    throw err;
+  }
 
   // Token expired — try to refresh once
   if (res.status === 401 && auth) {
@@ -80,6 +89,15 @@ export async function api(path, opts = {}, auth = true) {
 
   // No content (DELETE, etc.)
   if (res.status === 204) return null;
+
+  // Check content type — if HTML is returned, the backend is not running
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const err = new Error("Backend server is not running. Please start it with: python manage.py runserver 8000");
+    err.status = res.status;
+    err.isBackendDown = true;
+    throw err;
+  }
 
   const data = await res.json();
 

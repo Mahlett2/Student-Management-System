@@ -187,18 +187,21 @@ export default function TeacherGrades() {
     const grade = totalToGrade(total);
 
     const entry = {
+      student_name:    form.studentName,
       studentName:     form.studentName,
+      student_code:    form.studentId,
       studentId:       form.studentId,
-      studentCode:     form.studentId,
       subject:         assignedSubject || form.subject,
       period:          form.period || (assignedSemester ? `${assignedSemester} ${new Date().getFullYear()}` : ""),
+      assessment_type: "Final",
       assessmentType:  "Final",
       score:           total,
-      scoreAssignment: form.scoreAssignment,
-      scoreTest1:      form.scoreTest1,
-      scoreMid:        form.scoreMid,
-      scoreProject:    form.scoreProject,
-      scoreFinal:      form.scoreFinal,
+      // camelCase for serializer aliases
+      scoreAssignment: form.scoreAssignment !== "" ? form.scoreAssignment : null,
+      scoreTest1:      form.scoreTest1      !== "" ? form.scoreTest1      : null,
+      scoreMid:        form.scoreMid        !== "" ? form.scoreMid        : null,
+      scoreProject:    form.scoreProject    !== "" ? form.scoreProject    : null,
+      scoreFinal:      form.scoreFinal      !== "" ? form.scoreFinal      : null,
       total,
       grade,
       department:  teacherDept,

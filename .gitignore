@@ -17,10 +17,17 @@ build/
 
 # Node / React
 node_modules/
-student-management/node_modules/
+**/node_modules/
 student-management/dist/
 student-management/.env
 student-management/.env.local
+
+# Environment files
+.env
+.env.local
+
+# Kiro IDE files
+.kiro/
 
 # Logs
 logs
@@ -36,12 +43,13 @@ lerna-debug.log*
 Thumbs.db
 
 # IDE
-.vscode/*
-!.vscode/extensions.json
+.vscode/
 .idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-*.kiro/
+
+# Nested duplicate folder (should not be tracked)
+student-management/student-management/

@@ -1,17 +1,21 @@
 import { useState, useMemo, useEffect } from "react";
 import { apiGet } from "../../api/client";
 
-const YEARS     = ["Year 1", "Year 2", "Year 3", "Year 4", "Year 5"];
 const SEMESTERS = ["Semester 1", "Semester 2"];
 
-const GPA_MAP = { "A+": 4.0, A: 4.0, "A-": 3.7, "B+": 3.3, B: 3.0, "B-": 2.7, "C+": 2.3, C: 2.0, "C-": 1.7, D: 1.0, F: 0.0 };
+const GPA_MAP = {
+  "A+": 4.0, A: 4.0, "A-": 3.7,
+  "B+": 3.3, B: 3.0, "B-": 2.7,
+  "C+": 2.3, C: 2.0, "C-": 1.7,
+  D: 1.0, F: 0.0,
+};
 
 const SCORE_COMPONENTS = [
-  { key: "scoreAssignment", label: "Assign", max: 10 },
-  { key: "scoreTest1",      label: "Test1",  max: 10 },
-  { key: "scoreMid",        label: "Mid",    max: 30 },
-  { key: "scoreProject",    label: "Project",max: 10 },
-  { key: "scoreFinal",      label: "Final",  max: 40 },
+  { key: "scoreAssignment", label: "Assign",  max: 10 },
+  { key: "scoreTest1",      label: "Test1",   max: 10 },
+  { key: "scoreMid",        label: "Mid",     max: 30 },
+  { key: "scoreProject",    label: "Project", max: 10 },
+  { key: "scoreFinal",      label: "Final",   max: 40 },
 ];
 
 function toLetterGrade(g) {
@@ -53,64 +57,72 @@ export default function Grades() {
     apiGet("/results/?page_size=1000")
       .then((data) => {
         const list = Array.isArray(data) ? data : (data?.results || []);
-        const normalized = list
-          .filter((r) => {
-            const name = r.student_name || r.studentName || "";
-            return name.toLowerCase() === studentName.toLowerCase();
-          })
-          .map((r) => ({
-            ...r,
-            studentName:    r.student_name     || r.studentName    || "",
-            uploadedBy:     r.uploaded_by_name || r.uploadedBy     || "",
-            subject:        r.subject          || "",
-            period:         r.period           || "",
-            grade:          r.grade            || "",
-            total:          r.total            ?? null,
-            scoreAssignment: r.scoreAssignment ?? r.score_assignment ?? "",
-            scoreTest1:      r.scoreTest1      ?? r.score_test1      ?? "",
-            scoreMid:        r.scoreMid        ?? r.score_mid        ?? "",
-            scoreProject:    r.scoreProject    ?? r.score_project    ?? "",
-            scoreFinal:      r.scoreFinal      ?? r.score_final      ?? "",
-          }));
+        // Students only see their own results (backend filters by user)
+        const normalized = list.map((r) => ({
+          ...r,
+          studentName:     r.student_name      || r.studentName     || "",
+          uploadedBy:      r.uploaded_by_name  || r.uploadedBy      || "",
+          subject:         r.subject           || "",
+          period:          r.period            || "",
+          grade:           r.grade             || "",
+          total:           r.total             ?? r.score           ?? null,
+          // Support both camelCase (from frontend) and snake_case (from backend)
+          scoreAssignment: r.scoreAssignment   ?? r.score_assignment ?? "",
+          scoreTest1:      r.scoreTest1        ?? r.score_test1      ?? "",
+          scoreMid:        r.scoreMid          ?? r.score_mid        ?? "",
+          scoreProject:    r.scoreProject      ?? r.score_project    ?? "",
+          scoreFinal:      r.scoreFinal        ?? r.score_final      ?? "",
+        }));
         setAllGrades(normalized);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [studentName]);
 
-  // Extract unique years from grade periods (e.g. "Semester 1 2024" → infer year from student's year)
-  // Group by period string — periods look like "Semester 1 2024"
-  const periods = useMemo(() => [...new Set(allGrades.map((g) => g.period))].sort(), [allGrades]);
-
-  // For year/semester navigation, parse periods
-  // Period format: "Semester 1 2024" or "Semester 2 2025"
-  // We group by year-index based on order of unique academic years
+  // Extract unique academic calendar years from periods (e.g. "Semester 1 2024" → "2024")
+  // Then map them to "Year 1", "Year 2" etc. in chronological order
   const academicYears = useMemo(() => {
-    const yearSet = new Set();
-    periods.forEach((p) => {
-      const match = p.match(/\d{4}/);
-      if (match) yearSet.add(match[0]);
+    const calYears = new Set();
+    allGrades.forEach((g) => {
+      const match = (g.period || "").match(/\d{4}/);
+      if (match) calYears.add(match[0]);
     });
-    return [...yearSet].sort();
-  }, [periods]);
+    // Sort calendar years and map to Year 1, Year 2, ...
+    return [...calYears].sort().map((calYear, idx) => ({
+      label: `Year ${idx + 1}`,
+      calYear,
+    }));
+  }, [allGrades]);
 
   // Grades for selected year + semester
   const filteredGrades = useMemo(() => {
     if (!selectedYear || !selectedSemester) return [];
+    const { calYear } = selectedYear;
     return allGrades.filter((g) => {
       const p = g.period || "";
-      return p.includes(selectedSemester) && p.includes(selectedYear);
+      return p.includes(selectedSemester) && p.includes(calYear);
     });
   }, [allGrades, selectedYear, selectedSemester]);
 
   // GPA for filtered set
-  const gpaValues = filteredGrades.map((g) => GPA_MAP[toLetterGrade(g.grade)]).filter((v) => v !== undefined);
-  const semGpa = gpaValues.length > 0 ? (gpaValues.reduce((s, v) => s + v, 0) / gpaValues.length).toFixed(2) : null;
-  const semAvg = filteredGrades.filter((g) => !isNaN(Number(g.total))).reduce((s, g, _, a) => s + Number(g.total) / a.length, 0);
+  const gpaValues = filteredGrades
+    .map((g) => GPA_MAP[toLetterGrade(g.grade)])
+    .filter((v) => v !== undefined);
+  const semGpa = gpaValues.length > 0
+    ? (gpaValues.reduce((s, v) => s + v, 0) / gpaValues.length).toFixed(2)
+    : null;
+  const semAvgArr = filteredGrades.filter((g) => !isNaN(Number(g.total)));
+  const semAvg = semAvgArr.length > 0
+    ? semAvgArr.reduce((s, g) => s + Number(g.total), 0) / semAvgArr.length
+    : 0;
 
   // Overall GPA
-  const allGpaValues = allGrades.map((g) => GPA_MAP[toLetterGrade(g.grade)]).filter((v) => v !== undefined);
-  const overallGpa = allGpaValues.length > 0 ? (allGpaValues.reduce((s, v) => s + v, 0) / allGpaValues.length).toFixed(2) : null;
+  const allGpaValues = allGrades
+    .map((g) => GPA_MAP[toLetterGrade(g.grade)])
+    .filter((v) => v !== undefined);
+  const overallGpa = allGpaValues.length > 0
+    ? (allGpaValues.reduce((s, v) => s + v, 0) / allGpaValues.length).toFixed(2)
+    : null;
 
   if (loading) return (
     <div style={{ textAlign: "center", padding: "3rem", color: "#0369A1" }}>⏳ Loading grades...</div>
@@ -148,18 +160,20 @@ export default function Grades() {
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
               {academicYears.map((yr) => (
                 <button
-                  key={yr}
+                  key={yr.calYear}
                   onClick={() => { setSelectedYear(yr); setSelectedSemester(null); }}
                   style={{
-                    padding: "10px 20px", borderRadius: "10px", border: "none", cursor: "pointer",
+                    padding: "10px 24px", borderRadius: "10px", border: "none", cursor: "pointer",
                     fontWeight: "700", fontSize: "0.9rem",
-                    background: selectedYear === yr ? "linear-gradient(135deg,#0F172A,#1E293B)" : "#BAE6FD",
-                    color: selectedYear === yr ? "#38BDF8" : "#0C4A6E",
-                    boxShadow: selectedYear === yr ? "0 3px 10px rgba(0,0,0,0.2)" : "none",
+                    background: selectedYear?.calYear === yr.calYear
+                      ? "linear-gradient(135deg,#0F172A,#1E293B)"
+                      : "#BAE6FD",
+                    color: selectedYear?.calYear === yr.calYear ? "#38BDF8" : "#0C4A6E",
+                    boxShadow: selectedYear?.calYear === yr.calYear ? "0 3px 10px rgba(0,0,0,0.2)" : "none",
                     transition: "all 0.18s",
                   }}
                 >
-                  {yr}
+                  {yr.label}
                 </button>
               ))}
             </div>
@@ -173,7 +187,9 @@ export default function Grades() {
               </p>
               <div style={{ display: "flex", gap: "8px" }}>
                 {SEMESTERS.map((sem) => {
-                  const hasGrades = allGrades.some((g) => g.period?.includes(sem) && g.period?.includes(selectedYear));
+                  const hasGrades = allGrades.some(
+                    (g) => g.period?.includes(sem) && g.period?.includes(selectedYear.calYear)
+                  );
                   return (
                     <button
                       key={sem}
@@ -204,11 +220,15 @@ export default function Grades() {
           {/* Step 3: Show grades table */}
           {selectedYear && selectedSemester && (
             <>
-              {/* Summary */}
+              {/* Summary bar */}
               <div style={{ background: "#7DD3FC", borderRadius: "12px", padding: "14px 18px", marginBottom: "1rem", border: "1px solid rgba(14,165,233,0.2)", display: "flex", gap: "1.5rem", flexWrap: "wrap", alignItems: "center" }}>
                 <div>
-                  <p style={{ color: "#0C4A6E", fontWeight: "700", margin: 0 }}>{selectedYear} · {selectedSemester}</p>
-                  <p style={{ color: "#0369A1", fontSize: "0.82rem", margin: "3px 0 0" }}>{filteredGrades.length} course{filteredGrades.length !== 1 ? "s" : ""}</p>
+                  <p style={{ color: "#0C4A6E", fontWeight: "700", margin: 0 }}>
+                    {selectedYear.label} · {selectedSemester}
+                  </p>
+                  <p style={{ color: "#0369A1", fontSize: "0.82rem", margin: "3px 0 0" }}>
+                    {filteredGrades.length} course{filteredGrades.length !== 1 ? "s" : ""}
+                  </p>
                 </div>
                 {semGpa && (
                   <div style={{ background: "linear-gradient(135deg,#0F172A,#1E293B)", borderRadius: "10px", padding: "8px 16px", textAlign: "center" }}>
@@ -226,14 +246,18 @@ export default function Grades() {
 
               {filteredGrades.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "2rem", background: "#7DD3FC", borderRadius: "12px", color: "#0369A1" }}>
-                  <p>No grades for {selectedSemester} {selectedYear}.</p>
+                  <p>No grades for {selectedSemester} of {selectedYear.label}.</p>
                 </div>
               ) : (
                 <div style={{ background: "#7DD3FC", borderRadius: "12px", overflow: "hidden", border: "1px solid rgba(14,165,233,0.2)", overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "700px" }}>
                     <thead>
                       <tr style={{ background: "linear-gradient(135deg,#0F172A,#1E293B)" }}>
-                        {["#", "Subject", "Teacher", ...SCORE_COMPONENTS.map((c) => `${c.label}\n/${c.max}`), "Total", "Grade", "Letter", "Status"].map((h) => (
+                        {[
+                          "#", "Subject", "Teacher",
+                          ...SCORE_COMPONENTS.map((c) => `${c.label}\n/${c.max}`),
+                          "Total", "Grade", "Status",
+                        ].map((h) => (
                           <th key={h} style={{ padding: "11px 10px", textAlign: "center", color: "#38BDF8", fontSize: "0.72rem", fontWeight: "700", textTransform: "uppercase", whiteSpace: "pre-line", lineHeight: "1.3" }}>{h}</th>
                         ))}
                       </tr>
@@ -250,7 +274,9 @@ export default function Grades() {
                             <td style={{ padding: "10px 10px", color: "#0369A1", fontSize: "0.82rem" }}>{g.uploadedBy || "—"}</td>
                             {SCORE_COMPONENTS.map((c) => (
                               <td key={c.key} style={{ padding: "10px 8px", textAlign: "center", color: "#0C4A6E", fontWeight: "600", fontSize: "0.85rem" }}>
-                                {g[c.key] !== "" && g[c.key] != null ? g[c.key] : <span style={{ color: "#94A3B8" }}>—</span>}
+                                {g[c.key] !== "" && g[c.key] != null
+                                  ? g[c.key]
+                                  : <span style={{ color: "#94A3B8" }}>—</span>}
                               </td>
                             ))}
                             <td style={{ padding: "10px 8px", textAlign: "center" }}>
@@ -258,7 +284,6 @@ export default function Grades() {
                                 {g.total != null ? Number(g.total).toFixed(1) : "—"}
                               </span>
                             </td>
-                            <td style={{ padding: "10px 8px", textAlign: "center", fontWeight: "700", color: "#0C4A6E" }}>{g.grade || "—"}</td>
                             <td style={{ padding: "10px 8px", textAlign: "center" }}>
                               <span style={{ background: col.bg, color: col.text, padding: "3px 10px", borderRadius: "20px", fontWeight: "800", fontSize: "0.82rem" }}>{letter}</span>
                             </td>
